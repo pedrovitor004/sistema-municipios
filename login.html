@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Login - Gestão Municipal</title>
+    <script src="https://cdn.tailwindcss.com"></script> 
+</head>
+<body class="bg-[#0033CC] flex items-center justify-center h-screen">
+
+    <div class="bg-white p-8 rounded-lg shadow-2xl w-96">
+        <img src="assets/cisco1.png" alt="Logo CISCO" class="w-32 mx-auto mb-4">
+        <div class="text-center mb-6">
+            <h1 class="text-2xl font-bold text-[#0033CC]">Acesso ao Sistema</h1>
+            <p class="text-gray-500 text-sm">Entre com suas credenciais</p>
+        </div>
+
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Usuário</label>
+                <input type="text" id="login-user" class="w-full border p-2 rounded mt-1 focus:ring-2 focus:ring-[#0033CC]-500 outline-none" placeholder="admin">
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Senha</label>
+                <input type="password" id="login-pass" class="w-full border p-2 rounded mt-1 focus:ring-2 focus:ring-[#0033CC]-500 outline-none" placeholder="**********">
+            </div>
+
+            <button id="btn-entrar" class="w-full bg-[#0033CC] text-white py-2 rounded hover:bg-[#0033CC]-900 transition font-bold">
+                ENTRAR
+            </button>
+            
+            <p id="msg-erro" class="text-red-500 text-center text-sm hidden mt-2"></p>
+        </div>
+    </div>
+
+    <script>
+        // AGORA SIM: Usando a ponte segura (preload) igual ao resto do sistema
+        const btn = document.getElementById('btn-entrar');
+        const msg = document.getElementById('msg-erro');
+
+        btn.addEventListener('click', async () => {
+            const user = document.getElementById('login-user').value;
+            const pass = document.getElementById('login-pass').value;
+
+            btn.innerText = "Verificando...";
+            msg.classList.add('hidden');
+
+            try {
+                // Chama a função login definida no preload.js
+                const resultado = await window.api.login({ user, pass });
+
+                if (resultado.success) {
+                    btn.innerText = "Sucesso!";
+                    btn.classList.replace("bg-blue-800", "bg-green-600");
+                    // O main.js vai carregar o dashboard automaticamente
+                } else {
+                    btn.innerText = "ENTRAR";
+                    msg.innerText = "Usuário ou senha incorretos.";
+                    msg.classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error(error);
+                btn.innerText = "ENTRAR";
+                msg.innerText = "Erro de comunicação com o sistema.";
+                msg.classList.remove('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
