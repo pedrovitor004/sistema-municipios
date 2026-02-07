@@ -29,7 +29,6 @@ ipcMain.handle('login', async (e, { user, pass }) => {
     return new Promise(resolve => {
         db.get("SELECT * FROM usuarios WHERE login=? AND senha=?", [user, pass], (err, row) => {
             if (row) {
-                // Configurações da janela após login bem-sucedido
                 mainWindow.setResizable(true);
                 mainWindow.center();
                 mainWindow.maximize();
@@ -51,7 +50,7 @@ ipcMain.handle('get-municipios', async () => {
     });
 });
 
-// --- BUSCAR DADOS PARA A TELA ---
+// --- BUSCAR DADOS PARA A TELA DE LANÇAMENTO ---
 ipcMain.handle('buscar-exames', async (e, { municipioId, mes }) => {
     return new Promise(resolve => {
         const sql = `
@@ -75,13 +74,85 @@ ipcMain.handle('buscar-exames', async (e, { municipioId, mes }) => {
     });
 });
 
+// --- NOVO: BUSCAR PRODUÇÃO CONSOLIDADA (GLOBAL) ---
+ipcMain.handle('buscar-consolidado', async (e, mes) => {
+    return new Promise(resolve => {
+        const sql = `
+            SELECT 
+                m.nome as municipio,
+                SUM(IFNULL(p.quantidade_realizada, 0) * e.valor_unitario) as total_executado,
+                -- Cálculo simplificado de taxas: 20% do previsto + fixo (ajuste se necessário)
+                (SUM(IFNULL(e.valor_previsto, 0)) * 0.2 + 1621) as taxas,
+                0 as repasses
+            FROM municipios m
+            LEFT JOIN producao p ON m.id = p.municipio_id AND p.mes_referencia = ?
+            LEFT JOIN exames e ON p.exame_id = e.id
+            GROUP BY m.id, m.nome
+            ORDER BY m.nome ASC
+        `;
+        
+        db.all(sql, [mes], (err, rows) => {
+            if (err) {
+                console.error("Erro no consolidado:", err);
+                resolve([]);
+            } else {
+                resolve(rows || []);
+            }
+        });
+    });
+});
+
+ipcMain.handle('cadastrar-item', async (e, item) => {
+    return new Promise(resolve => {
+        const sql = `INSERT INTO exames (descricao, valor_unitario, rateio, qtd_prevista, valor_previsto) 
+                     VALUES (?, ?, 'Não', 0, 0)`;
+        
+        db.run(sql, [item.descricao, item.valor], function(err) {
+            if (err) {
+                console.error("Erro ao cadastrar item:", err.message);
+                resolve({ success: false, erro: err.message });
+            } else {
+                resolve({ success: true, id: this.lastID });
+            }
+        });
+    });
+});
+
+ipcMain.handle('excluir-item', async (e, id) => {
+    return new Promise(resolve => {
+        db.run("DELETE FROM exames WHERE id = ?", [id], function(err) {
+            if (err) resolve({ success: false, erro: err.message });
+            else resolve({ success: true });
+        });
+    });
+});
+
+// --- ATUALIZAR ITEM (EDIÇÃO) ---
+ipcMain.handle('editar-item', async (e, item) => {
+    return new Promise(resolve => {
+        const sql = `UPDATE exames SET descricao = ?, valor_unitario = ? WHERE id = ?`;
+        db.run(sql, [item.descricao, item.valor, item.id], function(err) {
+            if (err) resolve({ success: false, erro: err.message });
+            else resolve({ success: true });
+        });
+    });
+});
+
+// --- BUSCAR TODOS OS ITENS (PARA A LISTA DE GERENCIAMENTO) ---
+ipcMain.handle('listar-itens-catalogo', async () => {
+    return new Promise(resolve => {
+        db.all("SELECT id, descricao, valor_unitario FROM exames ORDER BY descricao ASC", [], (err, rows) => {
+            resolve(rows || []);
+        });
+    });
+});
+
 // --- SALVAR PRODUÇÃO COMPLETA (TRANSAÇÃO) ---
 ipcMain.handle('salvar-producao', async (e, lista) => {
     return new Promise(resolve => {
         db.serialize(() => {
             db.run("BEGIN TRANSACTION");
             
-            // 1. Atualiza Produção (Insert ou Update)
             const stmtProducao = db.prepare(`
                 INSERT INTO producao (municipio_id, exame_id, mes_referencia, quantidade_realizada, quantidade_extra) 
                 VALUES (?,?,?,?,?) 
@@ -91,7 +162,6 @@ ipcMain.handle('salvar-producao', async (e, lista) => {
                     quantidade_extra=excluded.quantidade_extra
             `);
 
-            // 2. Atualiza Planejamento na tabela exames
             const stmtExames = db.prepare(`
                 UPDATE exames 
                 SET rateio = ?, qtd_prevista = ?, valor_previsto = ?

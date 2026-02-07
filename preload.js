@@ -12,7 +12,11 @@ contextBridge.exposeInMainWorld('api', {
     // Persistência e Operações
     salvarProducao: (lista) => ipcRenderer.invoke('salvar-producao', lista),
     cadastrarItem: (item) => ipcRenderer.invoke('cadastrar-item', item),
+    excluirItem: (id) => ipcRenderer.invoke('excluir-item', id),
+    editarItem: (item) => ipcRenderer.invoke('editar-item', item),
+    listarItensCatalogo: () => ipcRenderer.invoke('listar-itens-catalogo'),
 
     // Relatórios
-    exportarExcel: (dados) => ipcRenderer.invoke('exportar-excel', dados)
+    exportarExcel: (dados) => ipcRenderer.invoke('exportar-excel', dados),
+    buscarConsolidado: (mes) => ipcRenderer.invoke('buscar-consolidado', mes)
 });

@@ -8,6 +8,7 @@ const corpoTabela = document.getElementById('tabela-producao');
 const corpoConsolidado = document.getElementById('tabela-consolidada');
 const selectMunicipio = document.getElementById('select-municipio');
 const btnCarregar = document.getElementById('btn-carregar');
+const btnAdicionarCatalogo = document.querySelector('#btn-tab-cadastro btn-blue-600') || document.querySelector('button[onclick*="Adicionar"]');
 const inputBusca = document.getElementById('input-busca-exame');
 
 // Referências ao Rodapé de Lançamento
@@ -102,6 +103,154 @@ btnCarregar.addEventListener('click', async () => {
         recalcularRodapeCompleto();
     } catch (err) { console.error(err); }
 });
+
+
+document.addEventListener('click', async (e) => {
+    // Verifica se clicou no botão de adicionar (ajuste o texto conforme seu HTML)
+    if (e.target.innerText === 'Adicionar ao Catálogo') {
+        const nome = document.querySelector('input[placeholder="Ex: Raio-X de Tórax"]').value;
+        const valor = parseFloat(document.querySelector('input[placeholder="0.00"]').value) || 0;
+
+        if (!nome || valor <= 0) {
+            return alert("Por favor, preencha o nome e um valor válido!");
+        }
+
+        try {
+            const res = await window.api.cadastrarItem({ descricao: nome, valor: valor });
+            if (res.success) {
+                alert("✅ Item adicionado ao catálogo com sucesso!");
+                // Limpa os campos
+                document.querySelector('input[placeholder="Ex: Raio-X de Tórax"]').value = '';
+                document.querySelector('input[placeholder="0.00"]').value = '0.00';
+            } else {
+                alert("❌ Erro ao cadastrar: " + res.erro);
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    }
+});
+
+// --- ABA: CADASTRO E GERENCIAMENTO DE ITENS ---
+
+// Função para carregar a lista de itens existentes na tela de cadastro
+async function atualizarListaItens() {
+    const listaContainer = document.getElementById('lista-itens-gerenciamento');
+    
+    if (!listaContainer) {
+        console.error("ERRO: Não encontrei o elemento 'lista-itens-gerenciamento' no HTML.");
+        return;
+    }
+
+    try {
+        console.log("Buscando itens no banco...");
+        const itens = await window.api.listarItensCatalogo();
+        console.log("Itens recebidos:", itens);
+
+        listaContainer.innerHTML = ''; // Limpa o "Carregando..."
+
+        if (!itens || itens.length === 0) {
+            listaContainer.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-500">Nenhum item no catálogo.</td></tr>';
+            return;
+        }
+
+        itens.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.className = "border-b hover:bg-gray-50 text-sm";
+            tr.innerHTML = `
+                <td class="p-2 text-center text-gray-400 font-mono text-[10px]">${item.id}</td>
+                <td class="p-2">
+                    <input type="text" value="${item.descricao}" class="w-full border rounded px-1" id="edit-desc-${item.id}">
+                </td>
+                <td class="p-2">
+                    <input type="number" step="0.01" value="${item.valor_unitario}" class="w-full border rounded px-1 font-mono" id="edit-val-${item.id}">
+                </td>
+                <td class="p-2 text-center flex gap-1 justify-center">
+                    <button onclick="salvarEdicaoItem(${item.id})" class="bg-blue-600 text-white px-2 py-1 rounded text-[10px] hover:bg-blue-700">Salvar</button>
+                    <button onclick="deletarItem(${item.id})" class="bg-red-600 text-white px-2 py-1 rounded text-[10px] hover:bg-red-700">Excluir</button>
+                </td>
+            `;
+            listaContainer.appendChild(tr);
+        });
+    } catch (err) {
+        console.error("Erro fatal ao carregar lista:", err);
+        listaContainer.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-red-500">Erro ao carregar banco de dados.</td></tr>';
+    }
+}
+// Funções globais para os botões da tabela
+window.salvarEdicaoItem = async (id) => {
+    const novaDesc = document.getElementById(`edit-desc-${id}`).value;
+    const novoVal = parseFloat(document.getElementById(`edit-val-${id}`).value);
+
+    if (!novaDesc || novoVal <= 0) return alert("Dados inválidos!");
+
+    const res = await window.api.editarItem({ id, descricao: novaDesc, valor: novoVal });
+    if (res.success) {
+        alert("Item atualizado!");
+        atualizarListaItens();
+    }
+};
+
+window.deletarItem = async (id) => {
+    if (!confirm("Tem certeza que deseja excluir este item permanentemente?")) return;
+    
+    const res = await window.api.excluirItem(id);
+    if (res.success) {
+        alert("Item removido!");
+        atualizarListaItens();
+    } else {
+        alert("Erro ao excluir: " + res.erro);
+    }
+};
+
+// Modificar o listener de cadastro para atualizar a lista após inserir
+document.getElementById('form-cadastro-item')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nome = document.getElementById('novo-desc').value;
+    const valor = parseFloat(document.getElementById('novo-preco').value) || 0;
+
+    if (!nome || valor <= 0) return alert("Preencha corretamente!");
+
+    const res = await window.api.cadastrarItem({ descricao: nome, valor: valor });
+    if (res.success) {
+        alert("✅ Adicionado!");
+        document.getElementById('novo-desc').value = '';
+        document.getElementById('novo-preco').value = '0.00';
+        atualizarListaItens(); // Recarrega a lista abaixo
+    }
+});
+
+// Chamar a lista quando clicar na aba de cadastro
+const originalShowTab = window.showTab;
+window.showTab = function(tabId) {
+    // Esconde todas as abas
+    document.getElementById('tab-producao').classList.add('hidden');
+    document.getElementById('tab-cadastro-itens').classList.add('hidden');
+    document.getElementById('tab-producao-consolidada').classList.add('hidden');
+
+    // Remove destaque de todos os botões
+    document.getElementById('btn-tab-producao').classList.remove('bg-blue-800', 'border-blue-400');
+    document.getElementById('btn-tab-cadastro').classList.remove('bg-blue-800', 'border-blue-400');
+    document.getElementById('btn-tab-consolidada').classList.remove('bg-blue-800', 'border-blue-400');
+
+    // Mostra a aba clicada
+    if (tabId === 'producao') {
+        document.getElementById('tab-producao').classList.remove('hidden');
+        document.getElementById('btn-tab-producao').classList.add('bg-blue-800', 'border-blue-400');
+    } 
+    else if (tabId === 'cadastro-itens') {
+        document.getElementById('tab-cadastro-itens').classList.remove('hidden');
+        document.getElementById('btn-tab-cadastro').classList.add('bg-blue-800', 'border-blue-400');
+        
+        // CHAMA A ATUALIZAÇÃO DA TABELA AQUI
+        atualizarListaItens(); 
+    } 
+    else if (tabId === 'producao-consolidada') {
+        document.getElementById('tab-producao-consolidada').classList.remove('hidden');
+        document.getElementById('btn-tab-consolidada').classList.add('bg-blue-800', 'border-blue-400');
+    }
+};
+
 
 // Busca em Tempo Real (Filtro)
 inputBusca.addEventListener('input', (e) => {
@@ -232,6 +381,7 @@ document.getElementById('btn-salvar').addEventListener('click', async () => {
 });
 
 // --- NAVEGAÇÃO ENTRE ABAS ---
+// --- NAVEGAÇÃO ENTRE ABAS ATUALIZADA ---
 window.showTab = function(tabId) {
     const abas = {
         'producao': 'tab-producao',
@@ -249,12 +399,19 @@ window.showTab = function(tabId) {
         const tabEl = document.getElementById(abas[key]);
         const btnEl = document.getElementById(botoes[key]);
         
-        if (key === tabId) {
-            tabEl.classList.remove('hidden');
-            if (btnEl) btnEl.classList.add('bg-blue-800', 'border', 'border-blue-400');
-        } else {
-            tabEl.classList.add('hidden');
-            if (btnEl) btnEl.classList.remove('bg-blue-800', 'border', 'border-blue-400');
+        if (tabEl) {
+            if (key === tabId) {
+                tabEl.classList.remove('hidden');
+                if (btnEl) btnEl.classList.add('bg-blue-800', 'border', 'border-blue-400');
+                
+                // GATILHO: Se a aba for cadastro, carrega a lista automaticamente
+                if (tabId === 'cadastro-itens') {
+                    atualizarListaItens();
+                }
+            } else {
+                tabEl.classList.add('hidden');
+                if (btnEl) btnEl.classList.remove('bg-blue-800', 'border', 'border-blue-400');
+            }
         }
     });
 };
