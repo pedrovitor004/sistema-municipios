@@ -11,7 +11,7 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1200,
         height: 800,
-        resizable: false, // Trava o tamanho no login
+        resizable: true,
         autoHideMenuBar: true,
         title: "Gestão Municípios CISCO",
         
