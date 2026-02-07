@@ -7,18 +7,13 @@ const XLSX = require('xlsx');
 let mainWindow;
 
 function createWindow() {
-    // 1. Inicia com uma janela pequena para o Login
     mainWindow = new BrowserWindow({
         width: 1200,
         height: 800,
         resizable: true,
         autoHideMenuBar: true,
         title: "Gestão Municípios CISCO",
-        
-        // --- AQUI ESTÁ O ÍCONE CONFIGURADO ---
         icon: path.join(__dirname, 'assets/ciscoico.ico'),
-        // -------------------------------------
-
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,
@@ -34,12 +29,10 @@ ipcMain.handle('login', async (e, { user, pass }) => {
     return new Promise(resolve => {
         db.get("SELECT * FROM usuarios WHERE login=? AND senha=?", [user, pass], (err, row) => {
             if (row) {
-                // SE O LOGIN DEU CERTO:
+                // Configurações da janela após login bem-sucedido
                 mainWindow.setResizable(true);
-                mainWindow.setSize(1200, 800);
                 mainWindow.center();
                 mainWindow.maximize();
-                
                 mainWindow.loadFile('dashboard.html');
                 resolve({ success: true });
             } else {
@@ -52,14 +45,15 @@ ipcMain.handle('login', async (e, { user, pass }) => {
 // --- LISTAR MUNICÍPIOS ---
 ipcMain.handle('get-municipios', async () => {
     return new Promise(resolve => {
-        db.all("SELECT * FROM municipios ORDER BY nome ASC", [], (err, rows) => resolve(rows || []));
+        db.all("SELECT * FROM municipios ORDER BY nome ASC", [], (err, rows) => {
+            resolve(rows || []);
+        });
     });
 });
 
-// --- BUSCAR DADOS PARA A TELA (ATUALIZADO PARA 10 COLUNAS) ---
+// --- BUSCAR DADOS PARA A TELA ---
 ipcMain.handle('buscar-exames', async (e, { municipioId, mes }) => {
     return new Promise(resolve => {
-        // Busca os dados cadastrais (exames) + produção realizada + planejamento
         const sql = `
             SELECT 
                 e.id, 
@@ -75,19 +69,19 @@ ipcMain.handle('buscar-exames', async (e, { municipioId, mes }) => {
                                  AND p.municipio_id = ? 
                                  AND p.mes_referencia = ?`;
         
-        db.all(sql, [municipioId, mes], (err, rows) => resolve(rows || []));
+        db.all(sql, [municipioId, mes], (err, rows) => {
+            resolve(rows || []);
+        });
     });
 });
 
-// --- SALVAR PRODUÇÃO COMPLETA ---
+// --- SALVAR PRODUÇÃO COMPLETA (TRANSAÇÃO) ---
 ipcMain.handle('salvar-producao', async (e, lista) => {
     return new Promise(resolve => {
         db.serialize(() => {
             db.run("BEGIN TRANSACTION");
             
-            // 1. Atualiza a tabela PRODUÇÃO (Realizado + Extra)
-            // Se a coluna 'quantidade_extra' não existir no banco, vai dar erro. 
-            // Certifique-se de apagar o sistema.db antigo para recriar com a estrutura nova.
+            // 1. Atualiza Produção (Insert ou Update)
             const stmtProducao = db.prepare(`
                 INSERT INTO producao (municipio_id, exame_id, mes_referencia, quantidade_realizada, quantidade_extra) 
                 VALUES (?,?,?,?,?) 
@@ -97,8 +91,7 @@ ipcMain.handle('salvar-producao', async (e, lista) => {
                     quantidade_extra=excluded.quantidade_extra
             `);
 
-            // 2. Atualiza a tabela EXAMES (Planejamento: Rateio, Metas)
-            // OBS: Isso altera a meta para TODOS os municípios, pois está na tabela exames
+            // 2. Atualiza Planejamento na tabela exames
             const stmtExames = db.prepare(`
                 UPDATE exames 
                 SET rateio = ?, qtd_prevista = ?, valor_previsto = ?
@@ -106,7 +99,6 @@ ipcMain.handle('salvar-producao', async (e, lista) => {
             `);
 
             lista.forEach(item => {
-                // Salva Produção
                 stmtProducao.run(
                     item.municipio_id, 
                     item.exame_id, 
@@ -115,7 +107,6 @@ ipcMain.handle('salvar-producao', async (e, lista) => {
                     item.quantidade_extra || 0
                 );
 
-                // Salva Planejamento (Rateio/Meta)
                 stmtExames.run(
                     item.rateio,
                     item.qtd_prevista,
@@ -127,7 +118,14 @@ ipcMain.handle('salvar-producao', async (e, lista) => {
             stmtProducao.finalize();
             stmtExames.finalize();
 
-            db.run("COMMIT", err => resolve({ success: !err, erro: err ? err.message : null }));
+            db.run("COMMIT", err => {
+                if (err) {
+                    console.error("Erro no Commit:", err.message);
+                    resolve({ success: false, erro: err.message });
+                } else {
+                    resolve({ success: true });
+                }
+            });
         });
     });
 });
@@ -148,7 +146,7 @@ ipcMain.handle('exportar-excel', async (e, { municipioId, nomeMunicipio, mes }) 
             `;
 
             db.all(sql, [municipioId, mes], async (err, rows) => {
-                if (err) return resolve({ success: false });
+                if (err) return resolve({ success: false, erro: err.message });
 
                 const dadosExcel = rows.map((item, index) => {
                     const totalExecutado = item.valor_unitario * (item.realizado + item.extra);
@@ -185,9 +183,18 @@ ipcMain.handle('exportar-excel', async (e, { municipioId, nomeMunicipio, mes }) 
             });
         } catch (error) {
             console.error(error);
-            resolve({ success: false });
+            resolve({ success: false, erro: error.message });
         }
     });
 });
 
+// Inicialização da App
 app.whenReady().then(createWindow);
+
+app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
