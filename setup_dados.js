@@ -4,70 +4,64 @@ const XLSX = require('xlsx');
 const nomeArquivo = 'Planilha Modelo.xlsx';
 
 console.log("---------------------------------------------------");
-console.log("🚀 INICIANDO IMPORTAÇÃO DE DADOS (TENTATIVA 3)");
+console.log("🚀 INICIANDO IMPORTAÇÃO PARA NEDB (VERSÃO 3.0)");
 console.log("---------------------------------------------------");
 
-try {
-    console.log(`📂 Lendo arquivo: ${nomeArquivo}`);
-    const workbook = XLSX.readFile(nomeArquivo);
-    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+async function importar() {
+    try {
+        console.log(`📂 Lendo arquivo: ${nomeArquivo}`);
+        const workbook = XLSX.readFile(nomeArquivo);
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
 
-    // AJUSTE CRÍTICO: range: 2 significa "Começar a ler na Linha 3 do Excel"
-    const dadosBrutos = XLSX.utils.sheet_to_json(worksheet, { range: 2 });
+        // range: 2 pula as duas primeiras linhas (começa na 3)
+        const dadosBrutos = XLSX.utils.sheet_to_json(worksheet, { range: 2 });
 
-    console.log(`📊 Linhas de dados encontradas: ${dadosBrutos.length}`);
+        console.log(`📊 Linhas de dados encontradas: ${dadosBrutos.length}`);
 
-    if (dadosBrutos.length === 0) {
-        throw new Error("❌ O Excel parece vazio ou o range está errado.");
-    }
+        if (dadosBrutos.length === 0) {
+            throw new Error("❌ O Excel parece vazio ou o cabeçalho não está na linha 3.");
+        }
 
-    // --- BLOCO DE DIAGNÓSTICO ---
-    // Pega a primeira linha para ver quais colunas o sistema detectou
-    const primeiraLinha = dadosBrutos[0];
-    const chavesEncontradas = Object.keys(primeiraLinha);
-    
-    // Procura a coluna EXAMES (ignorando maiúsculas/minúsculas)
-    const chaveExame = chavesEncontradas.find(k => k.trim().toUpperCase() === 'EXAMES');
+        // --- DIAGNÓSTICO DE COLUNAS ---
+        const chavesEncontradas = Object.keys(dadosBrutos[0]);
+        const chaveExame = chavesEncontradas.find(k => k.trim().toUpperCase() === 'EXAMES');
 
-    if (!chaveExame) {
-        console.log("\n❌ ERRO: Coluna 'EXAMES' não encontrada!");
-        console.log("👀 Colunas que o sistema VIU na linha 3:", chavesEncontradas);
-        console.log("⚠️ DICA: Verifique se o cabeçalho 'EXAMES' está mesmo na linha 3 do Excel.\n");
-        throw new Error("Estrutura do Excel incompatível.");
-    } else {
-        console.log(`✅ Coluna correta encontrada: '${chaveExame}'`);
-    }
-    // ----------------------------
+        if (!chaveExame) {
+            console.log("👀 Colunas detectadas:", chavesEncontradas);
+            throw new Error("Coluna 'EXAMES' não encontrada. Verifique o Excel.");
+        }
 
-    db.serialize(() => {
-        console.log("🧹 Limpando tabela antiga...");
-        db.run("DELETE FROM exames");
-        db.run("DELETE FROM sqlite_sequence WHERE name='exames'");
+        // --- LIMPEZA DO BANCO (PROMISIFIED) ---
+        console.log("🧹 Limpando catálogo de exames antigo...");
+        await new Promise((resolve, reject) => {
+            db.exames.remove({}, { multi: true }, (err, numRemoved) => {
+                if (err) reject(err);
+                else {
+                    console.log(`🗑️  ${numRemoved} itens antigos removidos.`);
+                    resolve();
+                }
+            });
+        });
 
-        const stmt = db.prepare(`
-            INSERT INTO exames (descricao, valor_unitario, rateio, qtd_prevista, valor_previsto) 
-            VALUES (?, ?, ?, ?, ?)
-        `);
-
+        // --- PROCESSAMENTO E INSERÇÃO ---
         let inseridos = 0;
-        db.run("BEGIN TRANSACTION");
+        const novosItens = [];
 
         dadosBrutos.forEach((linha) => {
-            // Normaliza chaves para garantir leitura
+            // Normaliza chaves para MAIÚSCULO
             const l = {};
             Object.keys(linha).forEach(chave => {
                 l[chave.trim().toUpperCase()] = linha[chave];
             });
 
-            const nomeExame = l['EXAMES']; // Usa a chave normalizada
+            const nomeExame = l['EXAMES'];
 
-            // Filtra linhas vazias ou totais
+            // Filtra linhas vazias ou que contenham a palavra TOTAL
             if (nomeExame && !nomeExame.toString().toUpperCase().includes('TOTAL')) {
                 
                 const tratarValor = (val) => {
                     if (typeof val === 'number') return val;
                     if (typeof val === 'string') {
-                        // Remove R$, pontos de milhar e troca vírgula por ponto
                         return parseFloat(val.replace('R$', '').replace(/\./g, '').replace(',', '.').trim()) || 0;
                     }
                     return 0;
@@ -80,21 +74,36 @@ try {
                 let valPrev = tratarValor(l['VALOR MENSAL PREVISTO']);
                 if (valPrev === 0) valPrev = qtdPrev * valorUnit;
 
-                stmt.run(nomeExame.toString().trim(), valorUnit, rateio, qtdPrev, valPrev);
-                inseridos++;
+                novosItens.push({
+                    descricao: nomeExame.toString().trim(),
+                    valor_unitario: valorUnit,
+                    rateio: rateio,
+                    qtd_prevista: qtdPrev,
+                    valor_previsto: valPrev
+                });
             }
         });
 
-        stmt.finalize();
-        
-        db.run("COMMIT", () => {
-            console.log("---------------------------------------------------");
-            console.log(`✅ SUCESSO! ${inseridos} exames foram gravados.`);
-            console.log("👉 Agora sim: rode 'npm start'");
-            console.log("---------------------------------------------------");
+        // Inserção em massa no NeDB
+        await new Promise((resolve, reject) => {
+            db.exames.insert(novosItens, (err, docs) => {
+                if (err) reject(err);
+                else {
+                    inseridos = docs.length;
+                    resolve();
+                }
+            });
         });
-    });
 
-} catch (e) {
-    console.error("❌ FALHA:", e.message);
+        console.log("---------------------------------------------------");
+        console.log(`✅ SUCESSO! ${inseridos} exames importados para o NeDB.`);
+        console.log("👉 O banco agora é NoSQL. Rode 'npm start' para testar.");
+        console.log("---------------------------------------------------");
+
+    } catch (e) {
+        console.error("❌ FALHA NA IMPORTAÇÃO:", e.message);
+    }
 }
+
+// Executa a função assíncrona
+importar();

@@ -1,6 +1,6 @@
 /**
  * renderer.js - Gestão de Produção CISCO
- * Versão: 3.0 (Com Produção Consolidada e Filtros)
+ * Versão: 3.3 (Carga Automática e IDs Corrigidos)
  */
 
 // --- REFERÊNCIAS GERAIS ---
@@ -8,7 +8,6 @@ const corpoTabela = document.getElementById('tabela-producao');
 const corpoConsolidado = document.getElementById('tabela-consolidada');
 const selectMunicipio = document.getElementById('select-municipio');
 const btnCarregar = document.getElementById('btn-carregar');
-const btnAdicionarCatalogo = document.querySelector('#btn-tab-cadastro btn-blue-600') || document.querySelector('button[onclick*="Adicionar"]');
 const inputBusca = document.getElementById('input-busca-exame');
 
 // Referências ao Rodapé de Lançamento
@@ -33,14 +32,19 @@ const limparMoeda = (texto) => {
 // --- INICIALIZAÇÃO ---
 window.onload = async () => {
     try {
+        // Carrega Municípios
         const municipios = await window.api.getMunicipios();
         municipios.forEach(m => {
             const opt = document.createElement('option');
-            opt.value = m.id;
+            opt.value = m._id || m.id; 
             opt.textContent = m.nome;
             selectMunicipio.appendChild(opt);
         });
-    } catch (e) { console.error("Erro ao carregar municípios:", e); }
+
+        // Tenta carregar o catálogo logo no início para garantir que os dados existam
+        await atualizarListaItens();
+        
+    } catch (e) { console.error("Erro na inicialização:", e); }
 };
 
 // --- ABA: LANÇAMENTO DE PRODUÇÃO ---
@@ -63,7 +67,10 @@ btnCarregar.addEventListener('click', async () => {
             return;
         }
 
-        dados.forEach(item => {
+        dados.forEach((item, index) => {
+            const idAtual = item._id || item.id; 
+            const numeroSequencial = String(index + 1).padStart(3, '0');
+            
             const vUnit = Number(item.valor_unitario) || 0;
             const qtdPrev = item.qtd_prevista !== null ? Number(item.qtd_prevista) : 0;
             const qtdReal = Number(item.qtd_realizada) || 0;
@@ -75,28 +82,28 @@ btnCarregar.addEventListener('click', async () => {
             const tr = document.createElement('tr');
             tr.className = "hover:bg-blue-50 transition odd:bg-white even:bg-gray-50 border-b";
             tr.innerHTML = `
-                <td class="p-2 border-r text-center text-gray-500 text-[10px]">${item.id}</td>
+                <td class="p-2 border-r text-center text-gray-500 font-bold text-[11px]">${numeroSequencial}</td>
                 <td class="p-2 border-r text-left font-medium text-xs">${item.descricao}</td>
                 <td class="p-2 border-r text-right text-gray-600 font-mono text-xs">${formatarMoeda(vUnit)}</td>
                 <td class="p-1 border-r text-center bg-yellow-50">
-                    <select class="w-full text-[10px] bg-transparent outline-none text-center" data-id="${item.id}" data-tipo="rateio">
+                    <select class="w-full text-[10px] bg-transparent outline-none text-center" data-id="${idAtual}" data-tipo="rateio">
                         <option value="Não" ${item.rateio === 'Não' ? 'selected' : ''}>Não</option>
                         <option value="Sim" ${item.rateio === 'Sim' ? 'selected' : ''}>Sim</option>
                     </select>
                 </td>
                 <td class="p-1 border-r text-center bg-yellow-50">
-                    <input type="number" min="0" value="${qtdPrev}" class="input-calc w-full bg-transparent text-center outline-none text-xs" data-id="${item.id}" data-tipo="prevista" data-preco="${vUnit}">
+                    <input type="number" min="0" value="${qtdPrev}" class="input-calc w-full bg-transparent text-center outline-none text-xs" data-id="${idAtual}" data-tipo="prevista" data-preco="${vUnit}">
                 </td>
                 <td class="p-1 border-r text-right bg-yellow-50 font-bold text-blue-700 text-[11px]">
-                     <span id="val-prev-display-${item.id}">${formatarMoeda(valPrev)}</span>
-                     <input type="hidden" class="val-previsto-row" id="input-val-prev-${item.id}" value="${valPrev.toFixed(2)}">
+                     <span id="val-prev-display-${idAtual}">${formatarMoeda(valPrev)}</span>
+                     <input type="hidden" class="val-previsto-row" id="input-val-prev-${idAtual}" value="${valPrev.toFixed(2)}">
                 </td>
                 <td class="p-1 border-r text-center bg-white">
-                    <input type="number" min="0" value="${qtdReal || ''}" class="input-calc w-full border border-blue-200 rounded text-center text-blue-900 font-bold text-xs outline-none" data-id="${item.id}" data-tipo="real" data-preco="${vUnit}">
+                    <input type="number" min="0" value="${qtdReal || ''}" class="input-calc w-full border border-blue-200 rounded text-center text-blue-900 font-bold text-xs outline-none" data-id="${idAtual}" data-tipo="real" data-preco="${vUnit}">
                 </td>
-                <td class="p-1 border-r text-center bg-gray-50 font-bold text-orange-600 text-xs" id="extra-${item.id}">${qtdExtra}</td>
-                <td class="p-2 border-r text-right font-bold text-gray-700 bg-gray-100 text-[11px] val-executado-row" id="exec-${item.id}">${formatarMoeda(valExecutado)}</td>
-                <td class="p-2 text-right font-bold ${saldoLinha >= 0 ? 'text-green-600' : 'text-red-600'} bg-gray-100 text-[11px] val-saldo-row" id="saldo-${item.id}">${formatarMoeda(saldoLinha)}</td>
+                <td class="p-1 border-r text-center bg-gray-50 font-bold text-orange-600 text-xs" id="extra-${idAtual}">${qtdExtra}</td>
+                <td class="p-2 border-r text-right font-bold text-gray-700 bg-gray-100 text-[11px] val-executado-row" id="exec-${idAtual}">${formatarMoeda(valExecutado)}</td>
+                <td class="p-2 text-right font-bold ${saldoLinha >= 0 ? 'text-green-600' : 'text-red-600'} bg-gray-100 text-[11px] val-saldo-row" id="saldo-${idAtual}">${formatarMoeda(saldoLinha)}</td>
             `;
             corpoTabela.appendChild(tr);
         });
@@ -104,106 +111,71 @@ btnCarregar.addEventListener('click', async () => {
     } catch (err) { console.error(err); }
 });
 
-
-document.addEventListener('click', async (e) => {
-    // Verifica se clicou no botão de adicionar (ajuste o texto conforme seu HTML)
-    if (e.target.innerText === 'Adicionar ao Catálogo') {
-        const nome = document.querySelector('input[placeholder="Ex: Raio-X de Tórax"]').value;
-        const valor = parseFloat(document.querySelector('input[placeholder="0.00"]').value) || 0;
-
-        if (!nome || valor <= 0) {
-            return alert("Por favor, preencha o nome e um valor válido!");
-        }
-
-        try {
-            const res = await window.api.cadastrarItem({ descricao: nome, valor: valor });
-            if (res.success) {
-                alert("✅ Item adicionado ao catálogo com sucesso!");
-                // Limpa os campos
-                document.querySelector('input[placeholder="Ex: Raio-X de Tórax"]').value = '';
-                document.querySelector('input[placeholder="0.00"]').value = '0.00';
-            } else {
-                alert("❌ Erro ao cadastrar: " + res.erro);
-            }
-        } catch (err) {
-            console.error(err);
-        }
-    }
-});
-
 // --- ABA: CADASTRO E GERENCIAMENTO DE ITENS ---
 
-// Função para carregar a lista de itens existentes na tela de cadastro
 async function atualizarListaItens() {
     const listaContainer = document.getElementById('lista-itens-gerenciamento');
-    
-    if (!listaContainer) {
-        console.error("ERRO: Não encontrei o elemento 'lista-itens-gerenciamento' no HTML.");
-        return;
-    }
+    if (!listaContainer) return;
 
     try {
-        console.log("Buscando itens no banco...");
         const itens = await window.api.listarItensCatalogo();
-        console.log("Itens recebidos:", itens);
-
-        listaContainer.innerHTML = ''; // Limpa o "Carregando..."
+        listaContainer.innerHTML = ''; 
 
         if (!itens || itens.length === 0) {
             listaContainer.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-500">Nenhum item no catálogo.</td></tr>';
             return;
         }
 
-        itens.forEach(item => {
+        itens.forEach((item, index) => {
+            const idAtual = item._id || item.id;
+            const numeroSequencial = String(index + 1).padStart(3, '0');
+            
             const tr = document.createElement('tr');
             tr.className = "border-b hover:bg-gray-50 text-sm";
             tr.innerHTML = `
-                <td class="p-2 text-center text-gray-400 font-mono text-[10px]">${item.id}</td>
+                <td class="p-2 text-center text-gray-500 font-bold text-[11px]">${numeroSequencial}</td>
                 <td class="p-2">
-                    <input type="text" value="${item.descricao}" class="w-full border rounded px-1" id="edit-desc-${item.id}">
+                    <input type="text" value="${item.descricao}" class="w-full border rounded px-1" id="edit-desc-${idAtual}">
                 </td>
                 <td class="p-2">
-                    <input type="number" step="0.01" value="${item.valor_unitario}" class="w-full border rounded px-1 font-mono" id="edit-val-${item.id}">
+                    <input type="number" step="0.01" value="${item.valor_unitario}" class="w-full border rounded px-1 font-mono" id="edit-val-${idAtual}">
                 </td>
                 <td class="p-2 text-center flex gap-1 justify-center">
-                    <button onclick="salvarEdicaoItem(${item.id})" class="bg-blue-600 text-white px-2 py-1 rounded text-[10px] hover:bg-blue-700">Salvar</button>
-                    <button onclick="deletarItem(${item.id})" class="bg-red-600 text-white px-2 py-1 rounded text-[10px] hover:bg-red-700">Excluir</button>
+                    <button onclick="salvarEdicaoItem('${idAtual}')" class="bg-blue-600 text-white px-2 py-1 rounded text-[10px] hover:bg-blue-700">Salvar</button>
+                    <button onclick="deletarItem('${idAtual}')" class="bg-red-600 text-white px-2 py-1 rounded text-[10px] hover:bg-red-700">Excluir</button>
                 </td>
             `;
             listaContainer.appendChild(tr);
         });
     } catch (err) {
-        console.error("Erro fatal ao carregar lista:", err);
-        listaContainer.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-red-500">Erro ao carregar banco de dados.</td></tr>';
+        console.error("Erro ao carregar lista:", err);
+        listaContainer.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-red-500">Erro ao comunicar com o banco de dados.</td></tr>';
     }
 }
-// Funções globais para os botões da tabela
+
 window.salvarEdicaoItem = async (id) => {
     const novaDesc = document.getElementById(`edit-desc-${id}`).value;
     const novoVal = parseFloat(document.getElementById(`edit-val-${id}`).value);
-
     if (!novaDesc || novoVal <= 0) return alert("Dados inválidos!");
 
     const res = await window.api.editarItem({ id, descricao: novaDesc, valor: novoVal });
     if (res.success) {
         alert("Item atualizado!");
-        atualizarListaItens();
+        await atualizarListaItens();
     }
 };
 
 window.deletarItem = async (id) => {
     if (!confirm("Tem certeza que deseja excluir este item permanentemente?")) return;
-    
     const res = await window.api.excluirItem(id);
     if (res.success) {
         alert("Item removido!");
-        atualizarListaItens();
+        await atualizarListaItens();
     } else {
         alert("Erro ao excluir: " + res.erro);
     }
 };
 
-// Modificar o listener de cadastro para atualizar a lista após inserir
 document.getElementById('form-cadastro-item')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const nome = document.getElementById('novo-desc').value;
@@ -216,43 +188,12 @@ document.getElementById('form-cadastro-item')?.addEventListener('submit', async 
         alert("✅ Adicionado!");
         document.getElementById('novo-desc').value = '';
         document.getElementById('novo-preco').value = '0.00';
-        atualizarListaItens(); // Recarrega a lista abaixo
+        await atualizarListaItens();
     }
 });
 
-// Chamar a lista quando clicar na aba de cadastro
-const originalShowTab = window.showTab;
-window.showTab = function(tabId) {
-    // Esconde todas as abas
-    document.getElementById('tab-producao').classList.add('hidden');
-    document.getElementById('tab-cadastro-itens').classList.add('hidden');
-    document.getElementById('tab-producao-consolidada').classList.add('hidden');
+// --- CÁLCULOS E FILTROS ---
 
-    // Remove destaque de todos os botões
-    document.getElementById('btn-tab-producao').classList.remove('bg-blue-800', 'border-blue-400');
-    document.getElementById('btn-tab-cadastro').classList.remove('bg-blue-800', 'border-blue-400');
-    document.getElementById('btn-tab-consolidada').classList.remove('bg-blue-800', 'border-blue-400');
-
-    // Mostra a aba clicada
-    if (tabId === 'producao') {
-        document.getElementById('tab-producao').classList.remove('hidden');
-        document.getElementById('btn-tab-producao').classList.add('bg-blue-800', 'border-blue-400');
-    } 
-    else if (tabId === 'cadastro-itens') {
-        document.getElementById('tab-cadastro-itens').classList.remove('hidden');
-        document.getElementById('btn-tab-cadastro').classList.add('bg-blue-800', 'border-blue-400');
-        
-        // CHAMA A ATUALIZAÇÃO DA TABELA AQUI
-        atualizarListaItens(); 
-    } 
-    else if (tabId === 'producao-consolidada') {
-        document.getElementById('tab-producao-consolidada').classList.remove('hidden');
-        document.getElementById('btn-tab-consolidada').classList.add('bg-blue-800', 'border-blue-400');
-    }
-};
-
-
-// Busca em Tempo Real (Filtro)
 inputBusca.addEventListener('input', (e) => {
     const termo = e.target.value.toLowerCase();
     const linhas = corpoTabela.querySelectorAll('tr');
@@ -264,7 +205,6 @@ inputBusca.addEventListener('input', (e) => {
     });
 });
 
-// Cálculos de Linha
 corpoTabela.addEventListener('input', (e) => {
     if (e.target.classList.contains('input-calc')) {
         const tr = e.target.closest('tr');
@@ -317,7 +257,7 @@ function recalcularRodapeCompleto() {
 
 // --- ABA: PRODUÇÃO CONSOLIDADA ---
 
-document.getElementById('btn-carregar-consolidado').addEventListener('click', async () => {
+document.getElementById('btn-carregar-consolidado')?.addEventListener('click', async () => {
     const mes = document.getElementById('mes-ref-consolidado').value;
     if (!mes) return alert("Selecione o mês para o consolidado!");
 
@@ -326,13 +266,11 @@ document.getElementById('btn-carregar-consolidado').addEventListener('click', as
     try {
         const dados = await window.api.buscarConsolidado(mes);
         corpoConsolidado.innerHTML = '';
-        
         let somaGeral = 0;
 
         dados.forEach(resumo => {
             const totalMuni = resumo.total_executado + resumo.taxas + resumo.repasses;
             somaGeral += totalMuni;
-
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td class="p-3 font-bold text-blue-800">${resumo.municipio}</td>
@@ -351,7 +289,7 @@ document.getElementById('btn-carregar-consolidado').addEventListener('click', as
     } catch (e) { console.error(e); }
 });
 
-// --- SALVAR E EXPORTAR ---
+// --- SALVAR ---
 
 document.getElementById('btn-salvar').addEventListener('click', async () => {
     const municipioId = selectMunicipio.value;
@@ -364,9 +302,9 @@ document.getElementById('btn-salvar').addEventListener('click', async () => {
         if (inpReal) {
             const id = inpReal.dataset.id;
             dados.push({
-                municipio_id: parseInt(municipioId),
+                municipio_id: municipioId,
                 mes_referencia: mes,
-                exame_id: parseInt(id),
+                exame_id: id,
                 rateio: tr.querySelector('select[data-tipo="rateio"]').value,
                 qtd_prevista: parseInt(tr.querySelector('input[data-tipo="prevista"]').value) || 0,
                 valor_previsto: parseFloat(document.getElementById(`input-val-prev-${id}`).value) || 0,
@@ -381,7 +319,6 @@ document.getElementById('btn-salvar').addEventListener('click', async () => {
 });
 
 // --- NAVEGAÇÃO ENTRE ABAS ---
-// --- NAVEGAÇÃO ENTRE ABAS ATUALIZADA ---
 window.showTab = function(tabId) {
     const abas = {
         'producao': 'tab-producao',
@@ -403,11 +340,7 @@ window.showTab = function(tabId) {
             if (key === tabId) {
                 tabEl.classList.remove('hidden');
                 if (btnEl) btnEl.classList.add('bg-blue-800', 'border', 'border-blue-400');
-                
-                // GATILHO: Se a aba for cadastro, carrega a lista automaticamente
-                if (tabId === 'cadastro-itens') {
-                    atualizarListaItens();
-                }
+                if (tabId === 'cadastro-itens') atualizarListaItens();
             } else {
                 tabEl.classList.add('hidden');
                 if (btnEl) btnEl.classList.remove('bg-blue-800', 'border', 'border-blue-400');
