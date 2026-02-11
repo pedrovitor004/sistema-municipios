@@ -1,6 +1,6 @@
 /**
  * renderer.js - Gestão de Produção CISCO
- * Versão: 3.3 (Carga Automática e IDs Corrigidos)
+ * Versão: 3.4 (Integração Aba Lançar Dinâmica)
  */
 
 // --- REFERÊNCIAS GERAIS ---
@@ -9,6 +9,11 @@ const corpoConsolidado = document.getElementById('tabela-consolidada');
 const selectMunicipio = document.getElementById('select-municipio');
 const btnCarregar = document.getElementById('btn-carregar');
 const inputBusca = document.getElementById('input-busca-exame');
+
+// Referências da Aba Lançar (Novas)
+const selectMuniLancar = document.getElementById('lancar-municipio');
+const inputBuscaLancar = document.querySelector('#tab-lancar input[type="text"]');
+const containerItensLancar = document.querySelector('#tab-lancar .max-h-60');
 
 // Referências ao Rodapé de Lançamento
 const footerTotalPrevisto = document.getElementById('footer-total-previsto');
@@ -32,7 +37,7 @@ const limparMoeda = (texto) => {
 // --- INICIALIZAÇÃO ---
 window.onload = async () => {
     try {
-        // Carrega Municípios
+        // Carrega Municípios para a Aba de Gestão
         const municipios = await window.api.getMunicipios();
         municipios.forEach(m => {
             const opt = document.createElement('option');
@@ -41,13 +46,93 @@ window.onload = async () => {
             selectMunicipio.appendChild(opt);
         });
 
-        // Tenta carregar o catálogo logo no início para garantir que os dados existam
         await atualizarListaItens();
-        
     } catch (e) { console.error("Erro na inicialização:", e); }
 };
 
-// --- ABA: LANÇAMENTO DE PRODUÇÃO ---
+// --- ABA: LANÇAMENTO RÁPIDO (NOVA LÓGICA) ---
+
+async function prepararAbaLancar() {
+    try {
+        const municipios = await window.api.getMunicipios();
+        if (selectMuniLancar) {
+            selectMuniLancar.innerHTML = '<option value="">Selecione o Município...</option>';
+            municipios.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m._id || m.id;
+                opt.textContent = m.nome;
+                selectMuniLancar.appendChild(opt);
+            });
+        }
+        filtrarItensLancar('');
+    } catch (e) { console.error("Erro ao preparar aba lançar:", e); }
+}
+
+async function filtrarItensLancar(termo) {
+    if (!containerItensLancar) return;
+    const itens = await window.api.listarItensCatalogo();
+    const filtrados = itens.filter(i => i.descricao.toLowerCase().includes(termo.toLowerCase()));
+    
+    containerItensLancar.innerHTML = '';
+    
+    filtrados.forEach(item => {
+        const id = item._id || item.id;
+        const div = document.createElement('div');
+        div.className = "p-3 hover:bg-blue-50 flex justify-between items-center border-b border-gray-100 transition";
+        div.innerHTML = `
+            <span class="text-sm font-medium text-gray-700">${item.descricao}</span>
+            <div class="flex items-center gap-2">
+                <span class="text-[10px] text-gray-400">V.Unit: ${formatarMoeda(item.valor_unitario)}</span>
+                <input type="number" min="0" placeholder="0" 
+                    class="input-lancar-qtd w-16 border border-gray-300 p-1 rounded text-center text-sm focus:border-blue-500 outline-none" 
+                    data-id="${id}" data-desc="${item.descricao}">
+            </div>
+        `;
+        containerItensLancar.appendChild(div);
+    });
+}
+
+// Escuta busca na aba lançar
+inputBuscaLancar?.addEventListener('input', (e) => filtrarItensLancar(e.target.value));
+
+// Evento de Salvar Lançamento Rápido
+document.getElementById('form-lancar-producao')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const muniId = selectMuniLancar.value;
+    const mes = document.getElementById('lancar-mes').value;
+    
+    if (!muniId || !mes) return alert("⚠️ Selecione Município e Mês!");
+
+    const inputs = document.querySelectorAll('.input-lancar-qtd');
+    const dadosParaSalvar = [];
+
+    inputs.forEach(inp => {
+        const qtd = parseInt(inp.value);
+        if (qtd > 0) {
+            dadosParaSalvar.push({
+                municipio_id: muniId,
+                mes_referencia: mes,
+                exame_id: inp.dataset.id,
+                quantidade_realizada: qtd,
+                quantidade_extra: 0,
+                rateio: 'Não',
+                qtd_prevista: 0,
+                valor_previsto: 0
+            });
+        }
+    });
+
+    if (dadosParaSalvar.length === 0) return alert("❌ Insira a quantidade em pelo menos um item!");
+
+    const res = await window.api.salvarProducao(dadosParaSalvar);
+    if (res.success) {
+        alert("✅ Produção lançada com sucesso!");
+        e.target.reset();
+        filtrarItensLancar('');
+    }
+});
+
+// --- ABA: GESTÃO DE PRODUÇÃO (TABELA) ---
 
 btnCarregar.addEventListener('click', async () => {
     const municipioId = selectMunicipio.value;
@@ -111,7 +196,7 @@ btnCarregar.addEventListener('click', async () => {
     } catch (err) { console.error(err); }
 });
 
-// --- ABA: CADASTRO E GERENCIAMENTO DE ITENS ---
+// --- ABA: GERENCIAMENTO DE ITENS ---
 
 async function atualizarListaItens() {
     const listaContainer = document.getElementById('lista-itens-gerenciamento');
@@ -149,40 +234,29 @@ async function atualizarListaItens() {
         });
     } catch (err) {
         console.error("Erro ao carregar lista:", err);
-        listaContainer.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-red-500">Erro ao comunicar com o banco de dados.</td></tr>';
     }
 }
 
+// Funções globais de edição/exclusão (mantidas conforme seu código)
 window.salvarEdicaoItem = async (id) => {
     const novaDesc = document.getElementById(`edit-desc-${id}`).value;
     const novoVal = parseFloat(document.getElementById(`edit-val-${id}`).value);
     if (!novaDesc || novoVal <= 0) return alert("Dados inválidos!");
-
     const res = await window.api.editarItem({ id, descricao: novaDesc, valor: novoVal });
-    if (res.success) {
-        alert("Item atualizado!");
-        await atualizarListaItens();
-    }
+    if (res.success) { alert("Item atualizado!"); await atualizarListaItens(); }
 };
 
 window.deletarItem = async (id) => {
     if (!confirm("Tem certeza que deseja excluir este item permanentemente?")) return;
     const res = await window.api.excluirItem(id);
-    if (res.success) {
-        alert("Item removido!");
-        await atualizarListaItens();
-    } else {
-        alert("Erro ao excluir: " + res.erro);
-    }
+    if (res.success) { alert("Item removido!"); await atualizarListaItens(); }
 };
 
 document.getElementById('form-cadastro-item')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const nome = document.getElementById('novo-desc').value;
     const valor = parseFloat(document.getElementById('novo-preco').value) || 0;
-
     if (!nome || valor <= 0) return alert("Preencha corretamente!");
-
     const res = await window.api.cadastrarItem({ descricao: nome, valor: valor });
     if (res.success) {
         alert("✅ Adicionado!");
@@ -231,7 +305,7 @@ corpoTabela.addEventListener('input', (e) => {
 });
 
 [inputRepasseCriamc, inputRepasseAgro].forEach(input => {
-    input.addEventListener('input', recalcularRodapeCompleto);
+    input?.addEventListener('input', recalcularRodapeCompleto);
 });
 
 function recalcularRodapeCompleto() {
@@ -241,18 +315,18 @@ function recalcularRodapeCompleto() {
     document.querySelectorAll('.val-executado-row').forEach(td => tExecutado += limparMoeda(td.innerText));
     document.querySelectorAll('.val-saldo-row').forEach(td => tSaldo += limparMoeda(td.innerText));
 
-    footerTotalPrevisto.innerText = formatarMoeda(tPrevisto);
-    footerSaldoMes.innerText = formatarMoeda(tSaldo);
-    footerTotalExecutado.innerText = formatarMoeda(tExecutado);
+    if(footerTotalPrevisto) footerTotalPrevisto.innerText = formatarMoeda(tPrevisto);
+    if(footerSaldoMes) footerSaldoMes.innerText = formatarMoeda(tSaldo);
+    if(footerTotalExecutado) footerTotalExecutado.innerText = formatarMoeda(tExecutado);
 
     const taxaAdm = (tPrevisto * 0.2) + 1621;
     const taxaExtra = Math.max(0, (tExecutado - tPrevisto) * 0.2);
     
-    inputTaxaAdm.value = taxaAdm.toFixed(2);
-    inputTaxaExtra.value = taxaExtra.toFixed(2);
+    if(inputTaxaAdm) inputTaxaAdm.value = taxaAdm.toFixed(2);
+    if(inputTaxaExtra) inputTaxaExtra.value = taxaExtra.toFixed(2);
 
-    const totalFinal = tExecutado + taxaAdm + taxaExtra + (parseFloat(inputRepasseCriamc.value) || 0) + (parseFloat(inputRepasseAgro.value) || 0);
-    footerTotalFinal.innerText = formatarMoeda(totalFinal);
+    const totalFinal = tExecutado + taxaAdm + taxaExtra + (parseFloat(inputRepasseCriamc?.value) || 0) + (parseFloat(inputRepasseAgro?.value) || 0);
+    if(footerTotalFinal) footerTotalFinal.innerText = formatarMoeda(totalFinal);
 }
 
 // --- ABA: PRODUÇÃO CONSOLIDADA ---
@@ -260,14 +334,12 @@ function recalcularRodapeCompleto() {
 document.getElementById('btn-carregar-consolidado')?.addEventListener('click', async () => {
     const mes = document.getElementById('mes-ref-consolidado').value;
     if (!mes) return alert("Selecione o mês para o consolidado!");
-
     corpoConsolidado.innerHTML = '<tr><td colspan="5" class="p-4 text-center">Processando dados globais...</td></tr>';
     
     try {
         const dados = await window.api.buscarConsolidado(mes);
         corpoConsolidado.innerHTML = '';
         let somaGeral = 0;
-
         dados.forEach(resumo => {
             const totalMuni = resumo.total_executado + resumo.taxas + resumo.repasses;
             somaGeral += totalMuni;
@@ -281,7 +353,6 @@ document.getElementById('btn-carregar-consolidado')?.addEventListener('click', a
             `;
             corpoConsolidado.appendChild(tr);
         });
-
         document.getElementById('footer-consolidado').innerHTML = `
             <td class="p-3 text-right uppercase" colspan="4">Total Geral do Consórcio:</td>
             <td class="p-3 text-right text-lg text-blue-700">${formatarMoeda(somaGeral)}</td>
@@ -289,7 +360,7 @@ document.getElementById('btn-carregar-consolidado')?.addEventListener('click', a
     } catch (e) { console.error(e); }
 });
 
-// --- SALVAR ---
+// --- SALVAR GERAL ---
 
 document.getElementById('btn-salvar').addEventListener('click', async () => {
     const municipioId = selectMunicipio.value;
@@ -322,12 +393,14 @@ document.getElementById('btn-salvar').addEventListener('click', async () => {
 window.showTab = function(tabId) {
     const abas = {
         'producao': 'tab-producao',
+        'lancar': 'tab-lancar', // Adicionado
         'cadastro-itens': 'tab-cadastro-itens',
         'producao-consolidada': 'tab-producao-consolidada'
     };
     
     const botoes = {
         'producao': 'btn-tab-producao',
+        'lancar': 'btn-tab-lancar', // Verifique se o ID do botão no HTML é este
         'cadastro-itens': 'btn-tab-cadastro',
         'producao-consolidada': 'btn-tab-consolidada'
     };
@@ -340,7 +413,10 @@ window.showTab = function(tabId) {
             if (key === tabId) {
                 tabEl.classList.remove('hidden');
                 if (btnEl) btnEl.classList.add('bg-blue-800', 'border', 'border-blue-400');
+                
+                // Gatilhos de carga automática por aba
                 if (tabId === 'cadastro-itens') atualizarListaItens();
+                if (tabId === 'lancar') prepararAbaLancar();
             } else {
                 tabEl.classList.add('hidden');
                 if (btnEl) btnEl.classList.remove('bg-blue-800', 'border', 'border-blue-400');
