@@ -1,6 +1,6 @@
 /**
  * renderer.js - Gestão de Produção CISCO
- * Versão: 3.4 (Integração Aba Lançar Dinâmica)
+ * Versão: 4.0 (Correção de Estado e Lançamento Automatizado)
  */
 
 // --- REFERÊNCIAS GERAIS ---
@@ -10,10 +10,10 @@ const selectMunicipio = document.getElementById('select-municipio');
 const btnCarregar = document.getElementById('btn-carregar');
 const inputBusca = document.getElementById('input-busca-exame');
 
-// Referências da Aba Lançar (Novas)
+// Referências da Aba Lançar
 const selectMuniLancar = document.getElementById('lancar-municipio');
-const inputBuscaLancar = document.querySelector('#tab-lancar input[type="text"]');
-const containerItensLancar = document.querySelector('#tab-lancar .max-h-60');
+const inputBuscaLancar = document.getElementById('input-busca-lancar-procedimento') || document.querySelector('#tab-lancar input[type="text"]');
+const containerItensLancar = document.getElementById('container-itens-lancar') || document.querySelector('#tab-lancar .max-h-60');
 
 // Referências ao Rodapé de Lançamento
 const footerTotalPrevisto = document.getElementById('footer-total-previsto');
@@ -27,6 +27,10 @@ const inputTaxaExtra = document.getElementById('input-taxa-extra');
 const inputRepasseCriamc = document.getElementById('input-repasse-criamc');
 const inputRepasseAgro = document.getElementById('input-repasse-agro');
 
+// --- VARIÁVEL DE ESTADO (MEMÓRIA TEMPORÁRIA) ---
+// Isso impede que os dados sumam ao filtrar a lista
+let lancamentoTemporario = {}; 
+
 // Utilitários
 const formatarMoeda = (val) => Number(val).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const limparMoeda = (texto) => {
@@ -37,7 +41,6 @@ const limparMoeda = (texto) => {
 // --- INICIALIZAÇÃO ---
 window.onload = async () => {
     try {
-        // Carrega Municípios para a Aba de Gestão
         const municipios = await window.api.getMunicipios();
         municipios.forEach(m => {
             const opt = document.createElement('option');
@@ -50,7 +53,7 @@ window.onload = async () => {
     } catch (e) { console.error("Erro na inicialização:", e); }
 };
 
-// --- ABA: LANÇAMENTO RÁPIDO (NOVA LÓGICA) ---
+// --- ABA: LANÇAMENTO RÁPIDO (LÓGICA CORRIGIDA) ---
 
 async function prepararAbaLancar() {
     try {
@@ -64,12 +67,15 @@ async function prepararAbaLancar() {
                 selectMuniLancar.appendChild(opt);
             });
         }
+        // Limpa o rascunho sempre que abre a aba para evitar lixo de sessões anteriores
+        lancamentoTemporario = {}; 
         filtrarItensLancar('');
     } catch (e) { console.error("Erro ao preparar aba lançar:", e); }
 }
 
 async function filtrarItensLancar(termo) {
     if (!containerItensLancar) return;
+    
     const itens = await window.api.listarItensCatalogo();
     const filtrados = itens.filter(i => i.descricao.toLowerCase().includes(termo.toLowerCase()));
     
@@ -77,20 +83,33 @@ async function filtrarItensLancar(termo) {
     
     filtrados.forEach(item => {
         const id = item._id || item.id;
+        // Recupera o valor que já estava digitado na memória, se existir
+        const valorSalvo = lancamentoTemporario[id] || '';
+
         const div = document.createElement('div');
         div.className = "p-3 hover:bg-blue-50 flex justify-between items-center border-b border-gray-100 transition";
         div.innerHTML = `
             <span class="text-sm font-medium text-gray-700">${item.descricao}</span>
             <div class="flex items-center gap-2">
                 <span class="text-[10px] text-gray-400">V.Unit: ${formatarMoeda(item.valor_unitario)}</span>
-                <input type="number" min="0" placeholder="0" 
-                    class="input-lancar-qtd w-16 border border-gray-300 p-1 rounded text-center text-sm focus:border-blue-500 outline-none" 
-                    data-id="${id}" data-desc="${item.descricao}">
+                <input type="number" min="0" value="${valorSalvo}" placeholder="Qtd" 
+                    class="w-20 border border-gray-300 p-1 rounded text-center text-sm focus:border-blue-500 outline-none" 
+                    oninput="atualizarRascunho('${id}', this.value)">
             </div>
         `;
         containerItensLancar.appendChild(div);
     });
 }
+
+// Função para salvar no estado global enquanto o usuário digita
+window.atualizarRascunho = (id, qtd) => {
+    const valor = parseInt(qtd);
+    if (valor > 0) {
+        lancamentoTemporario[id] = valor;
+    } else {
+        delete lancamentoTemporario[id]; // Remove se zerar
+    }
+};
 
 // Escuta busca na aba lançar
 inputBuscaLancar?.addEventListener('input', (e) => filtrarItensLancar(e.target.value));
@@ -103,30 +122,21 @@ document.getElementById('form-lancar-producao')?.addEventListener('submit', asyn
     
     if (!muniId || !mes) return alert("⚠️ Selecione Município e Mês!");
 
-    const inputs = document.querySelectorAll('.input-lancar-qtd');
-    const dadosParaSalvar = [];
-
-    inputs.forEach(inp => {
-        const qtd = parseInt(inp.value);
-        if (qtd > 0) {
-            dadosParaSalvar.push({
-                municipio_id: muniId,
-                mes_referencia: mes,
-                exame_id: inp.dataset.id,
-                quantidade_realizada: qtd,
-                quantidade_extra: 0,
-                rateio: 'Não',
-                qtd_prevista: 0,
-                valor_previsto: 0
-            });
-        }
-    });
+    // Transforma o objeto de rascunho em array para o backend
+    const dadosParaSalvar = Object.keys(lancamentoTemporario).map(idExame => ({
+        municipio_id: muniId,
+        mes_referencia: mes,
+        exame_id: idExame,
+        quantidade_realizada: lancamentoTemporario[idExame],
+        is_lancamento_rapido: true // Flag para o backend saber que não deve sobrescrever metas
+    }));
 
     if (dadosParaSalvar.length === 0) return alert("❌ Insira a quantidade em pelo menos um item!");
 
     const res = await window.api.salvarProducao(dadosParaSalvar);
     if (res.success) {
         alert("✅ Produção lançada com sucesso!");
+        lancamentoTemporario = {}; // Limpa memória após sucesso
         e.target.reset();
         filtrarItensLancar('');
     }
@@ -237,7 +247,6 @@ async function atualizarListaItens() {
     }
 }
 
-// Funções globais de edição/exclusão (mantidas conforme seu código)
 window.salvarEdicaoItem = async (id) => {
     const novaDesc = document.getElementById(`edit-desc-${id}`).value;
     const novoVal = parseFloat(document.getElementById(`edit-val-${id}`).value);
@@ -360,7 +369,7 @@ document.getElementById('btn-carregar-consolidado')?.addEventListener('click', a
     } catch (e) { console.error(e); }
 });
 
-// --- SALVAR GERAL ---
+// --- SALVAR GERAL (ABA GESTÃO) ---
 
 document.getElementById('btn-salvar').addEventListener('click', async () => {
     const municipioId = selectMunicipio.value;
@@ -393,14 +402,14 @@ document.getElementById('btn-salvar').addEventListener('click', async () => {
 window.showTab = function(tabId) {
     const abas = {
         'producao': 'tab-producao',
-        'lancar': 'tab-lancar', // Adicionado
+        'lancar': 'tab-lancar',
         'cadastro-itens': 'tab-cadastro-itens',
         'producao-consolidada': 'tab-producao-consolidada'
     };
     
     const botoes = {
         'producao': 'btn-tab-producao',
-        'lancar': 'btn-tab-lancar', // Verifique se o ID do botão no HTML é este
+        'lancar': 'btn-tab-lancar',
         'cadastro-itens': 'btn-tab-cadastro',
         'producao-consolidada': 'btn-tab-consolidada'
     };
@@ -414,7 +423,6 @@ window.showTab = function(tabId) {
                 tabEl.classList.remove('hidden');
                 if (btnEl) btnEl.classList.add('bg-blue-800', 'border', 'border-blue-400');
                 
-                // Gatilhos de carga automática por aba
                 if (tabId === 'cadastro-itens') atualizarListaItens();
                 if (tabId === 'lancar') prepararAbaLancar();
             } else {
