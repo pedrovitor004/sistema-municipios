@@ -42,12 +42,20 @@ const limparMoeda = (texto) => {
 window.onload = async () => {
     try {
         const municipios = await window.api.getMunicipios();
-        municipios.forEach(m => {
-            const opt = document.createElement('option');
-            opt.value = m._id || m.id; 
-            opt.textContent = m.nome;
-            selectMunicipio.appendChild(opt);
-        });
+        
+        // Popula o select da aba de GESTÃO (Produção Geral)
+        if (selectMunicipio) {
+            selectMunicipio.innerHTML = '<option value="">Selecione...</option>';
+            municipios.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m._id || m.id; 
+                opt.textContent = m.nome;
+                selectMunicipio.appendChild(opt);
+            });
+        }
+
+        // --- ADICIONE ESTA LINHA ABAIXO ---
+        await prepararAbaLancar(); 
 
         await atualizarListaItens();
     } catch (e) { console.error("Erro na inicialização:", e); }
@@ -55,24 +63,109 @@ window.onload = async () => {
 
 // --- ABA: LANÇAMENTO RÁPIDO (LÓGICA CORRIGIDA) ---
 
+// --- NOVO: Função para Marcar/Desmarcar todos os municípios ---
+window.marcarTodosMunicipios = (status) => {
+    const checkboxes = document.querySelectorAll('.check-muni');
+    checkboxes.forEach(cb => cb.checked = status);
+};
+
+// --- ALTERADO: prepararAbaLancar para suportar Multi-seleção ---
 async function prepararAbaLancar() {
     try {
         const municipios = await window.api.getMunicipios();
+        
+        // Selecionamos o container onde ficavam os municípios (adaptado para lista de checkboxes)
         if (selectMuniLancar) {
-            selectMuniLancar.innerHTML = '<option value="">Selecione o Município...</option>';
+            // Transformamos o select em um container de lista para facilitar a vida
+            const containerParent = selectMuniLancar.parentElement;
+            containerParent.innerHTML = `
+                <label class="block font-bold text-xs text-[#0033CC] mb-1">MUNICÍPIOS (Lançamento em Lote)</label>
+                <div id="lista-municipios-lote" class="grid grid-cols-2 gap-2 border p-3 rounded bg-gray-50 max-h-40 overflow-y-auto border-gray-300">
+                    </div>
+                <div class="mt-2 text-[10px] text-gray-500 flex gap-2">
+                    <button type="button" onclick="marcarTodosMunicipios(true)" class="underline hover:text-blue-700">Marcar Todos</button>
+                    <button type="button" onclick="marcarTodosMunicipios(false)" class="underline hover:text-blue-700">Desmarcar</button>
+                </div>
+            `;
+
+            const listaContainer = document.getElementById('lista-municipios-lote');
             municipios.forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m._id || m.id;
-                opt.textContent = m.nome;
-                selectMuniLancar.appendChild(opt);
+                const id = m._id || m.id;
+                listaContainer.innerHTML += `
+                    <label class="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-100 p-1 rounded">
+                        <input type="checkbox" class="check-muni" value="${id}" data-nome="${m.nome}">
+                        <span class="truncate">${m.nome}</span>
+                    </label>
+                `;
             });
         }
-        // Limpa o rascunho sempre que abre a aba para evitar lixo de sessões anteriores
+        
         lancamentoTemporario = {}; 
         filtrarItensLancar('');
     } catch (e) { console.error("Erro ao preparar aba lançar:", e); }
 }
 
+// --- ALTERADO: Evento de Salvar Lançamento (Lógica de Automação em Lote) ---
+document.getElementById('form-lancar-producao')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    // Coleta todos os municípios marcados
+    const munisMarcados = Array.from(document.querySelectorAll('.check-muni:checked'));
+    const mes = document.getElementById('lancar-mes').value;
+    
+    if (munisMarcados.length === 0 || !mes) {
+        return alert("⚠️ Selecione pelo menos um Município e o Mês!");
+    }
+
+    const idsExames = Object.keys(lancamentoTemporario);
+    if (idsExames.length === 0) return alert("❌ Insira a quantidade em pelo menos um item!");
+
+    // --- AUTOMAÇÃO: Replica os itens para cada município selecionado ---
+    const dadosParaSalvar = [];
+    
+    munisMarcados.forEach(muni => {
+        const muniId = muni.value;
+        const muniNome = muni.dataset.nome;
+
+        idsExames.forEach(idExame => {
+            const qtd = lancamentoTemporario[idExame];
+            dadosParaSalvar.push({
+                municipio_id: muniId,
+                mes_referencia: mes,
+                exame_id: idExame,
+                quantidade_realizada: qtd,
+                qtd_prevista: qtd, // FACILITADOR: Define meta igual à realizada automaticamente
+                is_lancamento_rapido: true 
+            });
+        });
+    });
+
+    const res = await window.api.salvarProducao(dadosParaSalvar);
+    
+    if (res.success) {
+        // Gera um feedback visual (Protocolo)
+        const nomesMunis = munisMarcados.map(m => m.dataset.nome).join(', ');
+        alert(`✅ Sucesso!\nLançado para: ${munisMarcados.length} municípios.\nItens: ${idsExames.length} tipos de procedimentos.`);
+        
+        // Limpeza
+        lancamentoTemporario = {};
+        e.target.reset();
+        marcarTodosMunicipios(false);
+        filtrarItensLancar('');
+        
+        // Opcional: Criar uma div de protocolo no fim da página
+        const protocolArea = document.getElementById('protocolo-container');
+        if (protocolArea) {
+            protocolArea.innerHTML = `
+                <div class="p-3 bg-green-50 border border-green-200 rounded text-xs mt-4">
+                    <p class="font-bold text-green-800">ÚLTIMO LANÇAMENTO EM LOTE:</p>
+                    <p>Cidades: ${nomesMunis}</p>
+                    <p>Mês: ${mes} | Data: ${new Date().toLocaleString()}</p>
+                </div>
+            `;
+        }
+    }
+});
 async function filtrarItensLancar(termo) {
     if (!containerItensLancar) return;
     
