@@ -56,6 +56,47 @@ ipcMain.handle('get-municipios', async () => {
     });
 });
 
+ipcMain.handle("buscarEstatisticas", async (event, mes) => {
+
+    const municipios = await new Promise(res =>
+        db.municipios.find({}, (err, docs) => res(docs || []))
+    );
+
+    const exames = await new Promise(res =>
+        db.exames.find({}, (err, docs) => res(docs || []))
+    );
+
+    const producoes = await new Promise(res =>
+        db.producao.find({ mes_referencia: mes }, (err, docs) => res(docs || []))
+    );
+
+    const resultado = [];
+
+    for (const prod of producoes) {
+
+        const municipio = municipios.find(m => 
+            String(m._id) === String(prod.municipio_id)
+        );
+
+        const exame = exames.find(e => 
+            String(e._id) === String(prod.exame_id)
+        );
+
+        if (municipio && exame) {
+            resultado.push({
+                municipio: municipio.nome,
+                procedimento: exame.descricao,
+                quantidade: prod.quantidade_realizada || 0,
+                total: (prod.quantidade_realizada || 0) * (exame.valor_unitario || 0)
+            });
+        }
+    }
+
+    console.log("Resultado final estatísticas:", resultado);
+
+    return resultado;
+});
+
 // --- BUSCA PARA GESTÃO (Tabela com Rateio e Metas unificadas) ---
 ipcMain.handle('buscar-exames', async (e, { municipioId, mes }) => {
     return new Promise((resolve) => {

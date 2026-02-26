@@ -1,7 +1,200 @@
-/**
- * renderer.js - Gestão de Produção CISCO
- * Versão: 4.0 (Correção de Estado e Lançamento Automatizado)
- */
+// LOTE DE LANÇAMENTO TEMPORÁRIO
+let loteLançamentos = [];
+
+async function carregarComboLote() {
+    const municipios = await window.api.getMunicipios?.() || [];
+    const procs = await window.api.listarItensCatalogo?.() || [];
+
+    const selM = document.getElementById('lancar-municipio-unico');
+    const selP = document.getElementById('lancar-procedimento');
+    if (!selM || !selP) return;
+
+    selM.innerHTML = '<option value="">Selecione o município</option>';
+    municipios.forEach(m => selM.innerHTML += `<option value="${m._id||m.id}">${m.nome}</option>`);
+    selP.innerHTML = '<option value="">Selecione o procedimento</option>';
+    procs.forEach(p => selP.innerHTML += `<option value="${p._id||p.id}">${p.descricao}</option>`);
+}
+
+document.getElementById('btn-add-lote').onclick = function() {
+    const selM = document.getElementById('lancar-municipio-unico');
+    const selP = document.getElementById('lancar-procedimento');
+    const qtd = parseInt(document.getElementById('lancar-qtd').value);
+    if(!selM.value || !selP.value || !qtd || qtd <= 0) return alert('Preencha todos!');
+    // Para apurar nomes
+    const txtMun = selM.options[selM.selectedIndex].text;
+    const txtProc = selP.options[selP.selectedIndex].text;
+    loteLançamentos.push({
+        municipio_id: selM.value,
+        municipio_nome: txtMun,
+        exame_id: selP.value,
+        procedimento_nome: txtProc,
+        quantidade: qtd
+    });
+    atualizarTabelaLote();
+};
+
+function atualizarTabelaLote() {
+    const body = document.getElementById('tabela-lote-lancamentos');
+    if(!body) return;
+    body.innerHTML = loteLançamentos.length==0 ?
+        `<tr><td colspan="4" class="p-4 text-center text-gray-400">Nenhum lançamento no lote.</td></tr>`
+        : loteLançamentos.map((el,ix)=>`
+            <tr>
+                <td class="p-2 border-r">${el.municipio_nome}</td>
+                <td class="p-2 border-r">${el.procedimento_nome}</td>
+                <td class="p-2 border-r text-center">${el.quantidade}</td>
+                <td class="p-2 text-center">
+                    <button onclick="removerDoLote(${ix})" class="text-red-700 underline">Remover</button>
+                </td>
+            </tr>
+    `).join('');
+}
+window.removerDoLote = function(idx) {
+    loteLançamentos.splice(idx,1);
+    atualizarTabelaLote();
+};
+
+// Botão Lançar Tudo
+document.getElementById('btn-lancar-tudo').onclick = async function() {
+    if(loteLançamentos.length == 0) 
+        return alert("Nenhum lançamento no lote!");
+
+        const mes = document.getElementById("mes-referencia").value;
+
+        if(!mes) {
+            return alert("Selecione o mês de referência antes de lançar.");
+        }
+
+        const dadosParaEnviar = loteLançamentos.map(x => ({
+            municipio_id: x.municipio_id,
+            exame_id: x.exame_id,
+            quantidade_realizada: x.quantidade,
+            qtd_prevista: x.quantidade,
+            mes_referencia: mes,
+            is_lancamento_rapido: true
+        }));
+
+    const res = await window.api.salvarProducao(dadosParaEnviar);
+
+    if(res.success) {
+
+        // 🔥 BUSCA CATÁLOGO PARA PEGAR DESCRIÇÕES
+        const itensCatalogo = await window.api.listarItensCatalogo();
+
+        const itens = loteLançamentos.map(x => {
+            const item = itensCatalogo.find(i => i._id == x.exame_id || i.id == x.exame_id);
+            return {
+                exame_id: x.exame_id,
+                descricao: item?.descricao || x.procedimento_nome,
+                quantidade: x.quantidade,
+                valor_unit: item?.valor_unitario ?? 0
+            };
+        });
+
+        // 🔥 MUNICÍPIOS ÚNICOS
+        const municipiosUnicos = [...new Map(
+            loteLançamentos.map(m => [m.municipio_id, {
+                id: m.municipio_id,
+                nome: m.municipio_nome
+            }])
+        ).values()];
+
+        const protocolo = montarObjetoProtocolo({
+            usuario: "Admin",
+            municipios: municipiosUnicos,
+            mesReferencia: mes,
+            itens
+        });
+
+        salvarProtocoloLocal(protocolo);
+        mostrarProtocoloNaTela(protocolo);
+
+        alert("✅ Lançamento em lote efetuado!");
+
+        loteLançamentos = [];
+        atualizarTabelaLote();
+    }
+};
+// --------- UTILITÁRIOS DE PROTOCOLO ---------
+function gerarProtocoloID() {
+    const dt = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const rand = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `PROTOC-${dt.getFullYear()}${pad(dt.getMonth() + 1)}${pad(dt.getDate())}-${pad(dt.getHours())}${pad(dt.getMinutes())}${pad(dt.getSeconds())}-${rand}`;
+}
+
+function montarObjetoProtocolo({ usuario = "Admin", municipios, mesReferencia, itens }) {
+    return {
+        protocoloID: gerarProtocoloID(),
+        dataHora: new Date().toISOString(),
+        usuario,
+        municipios: municipios.map(m => ({
+            id: m.value || m.id,
+            nome: m.dataset?.nome || m.nome
+        })),
+        mesReferencia,
+        itens
+    };
+}
+
+function salvarProtocoloLocal(protocolo) {
+    const lista = JSON.parse(localStorage.getItem('protocolosLotes') || '[]');
+    lista.push(protocolo);
+    localStorage.setItem('protocolosLotes', JSON.stringify(lista));
+}
+
+function recuperarProtocolosLocais() {
+    return JSON.parse(localStorage.getItem('protocolosLotes') || '[]');
+}
+
+function mostrarProtocoloNaTela(protocolo) {
+    const bloco = document.createElement('div');
+    bloco.className = "my-4 p-4 rounded bg-green-50 border border-green-200 text-xs protocolo_card";
+    bloco.innerHTML = `
+        <div><b>Protocolo:</b> <span class="text-green-700">${protocolo.protocoloID}</span></div>
+        <div><b>Data:</b> ${new Date(protocolo.dataHora).toLocaleString()}</div>
+        <div><b>Usuário:</b> ${protocolo.usuario}</div>
+        <div><b>Municípios:</b> ${protocolo.municipios.map(m=>m.nome).join(', ')}</div>
+        <div><b>Mês de Referência:</b> ${protocolo.mesReferencia}</div>
+        <div class="mt-2">
+            <b>Itens lançados:</b>
+            <ul style="margin-left: 1em">
+                ${protocolo.itens.map(i=>`<li>${i.descricao} — Qtd: <b>${i.quantidade}</b></li>`).join('')}
+            </ul>
+        </div>
+    `;
+    const protocolArea = document.getElementById('protocolo-container');
+    if (protocolArea) {
+        protocolArea.prepend(bloco); // Adiciona novo protocolo em cima
+    }
+}
+
+function exibirTodosProtocolos() {
+    const lista = recuperarProtocolosLocais();
+    let painel = document.getElementById('painel-protocolos');
+    if (!painel) {
+        painel = document.createElement('div');
+        painel.id = "painel-protocolos";
+        painel.className = "max-h-64 overflow-auto bg-gray-100 border rounded mb-3 p-3";
+        document.getElementById('protocolo-container')?.appendChild(painel);
+    }
+    painel.innerHTML = "<b>Histórico de Protocolos:</b><hr>";
+    if (lista.length === 0) {
+        painel.innerHTML += "<i>Nenhum protocolo encontrado.</i>";
+        return;
+    }
+    lista.slice().reverse().forEach(prot => {
+        painel.innerHTML += `
+            <div class="mb-2 p-2 bg-white border rounded">
+                <div><b>${prot.protocoloID}</b> | ${new Date(prot.dataHora).toLocaleString()}</div>
+                <div style="font-size:11px">Municípios: ${prot.municipios.map(m=>m.nome).join(', ')}</div>
+                <div style="font-size:11px">Mês: ${prot.mesReferencia}</div>
+                <div style="font-size:11px">Itens: ${prot.itens.map(i=>i.descricao+'('+i.quantidade+')').join(', ')}</div>
+            </div>
+        `;
+    });
+}
+
 
 // --- REFERÊNCIAS GERAIS ---
 const corpoTabela = document.getElementById('tabela-producao');
@@ -39,27 +232,37 @@ const limparMoeda = (texto) => {
 };
 
 // --- INICIALIZAÇÃO ---
-window.onload = async () => {
+// --- INICIALIZAÇÃO GLOBAL CORRIGIDA ---
+window.addEventListener("load", async () => {
     try {
+        // Carrega combos do lote
+        await carregarComboLote();
+
+        // Carrega municípios
         const municipios = await window.api.getMunicipios();
         
-        // Popula o select da aba de GESTÃO (Produção Geral)
+
         if (selectMunicipio) {
             selectMunicipio.innerHTML = '<option value="">Selecione...</option>';
             municipios.forEach(m => {
                 const opt = document.createElement('option');
-                opt.value = m._id || m.id; 
+                opt.value = m._id || m.id;
                 opt.textContent = m.nome;
                 selectMunicipio.appendChild(opt);
             });
         }
 
-        // --- ADICIONE ESTA LINHA ABAIXO ---
-        await prepararAbaLancar(); 
+        
+        // Prepara aba lançar
+        await prepararAbaLancar();
 
+        // Atualiza lista catálogo
         await atualizarListaItens();
-    } catch (e) { console.error("Erro na inicialização:", e); }
-};
+
+    } catch (e) {
+        console.error("Erro na inicialização:", e);
+    }
+});
 
 // --- ABA: LANÇAMENTO RÁPIDO (LÓGICA CORRIGIDA) ---
 
@@ -143,37 +346,46 @@ document.getElementById('form-lancar-producao')?.addEventListener('submit', asyn
     const res = await window.api.salvarProducao(dadosParaSalvar);
     
     if (res.success) {
-        // Gera um feedback visual (Protocolo)
-        const nomesMunis = munisMarcados.map(m => m.dataset.nome).join(', ');
-        alert(`✅ Sucesso!\nLançado para: ${munisMarcados.length} municípios.\nItens: ${idsExames.length} tipos de procedimentos.`);
-        
-        // Limpeza
+        // --------------- PROTOCOLO DETALHADO ---------------
+        // Buscar nomes e info dos exames:
+        const itensCatalogo = await window.api.listarItensCatalogo();
+        const itens = idsExames.map(id => {
+            const item = itensCatalogo.find(i => i._id == id || i.id == id);
+            return {
+                exame_id: id,
+                descricao: item?.descricao || id,
+                quantidade: lancamentoTemporario[id],
+                valor_unit: item?.valor_unitario ?? null
+            }
+        });
+
+        const municipiosFormatados = munisMarcados.map(m => ({
+            id: m.value,
+            nome: m.dataset.nome
+        }));
+
+        const protocolo = montarObjetoProtocolo({
+            usuario: "Admin",
+            municipios: municipiosFormatados,
+            mesReferencia: mes,
+            itens
+        });
+        salvarProtocoloLocal(protocolo);
+        mostrarProtocoloNaTela(protocolo);
+        // -----------------------------------------------------
+
         lancamentoTemporario = {};
         e.target.reset();
         marcarTodosMunicipios(false);
         filtrarItensLancar('');
-        
-        // Opcional: Criar uma div de protocolo no fim da página
-        const protocolArea = document.getElementById('protocolo-container');
-        if (protocolArea) {
-            protocolArea.innerHTML = `
-                <div class="p-3 bg-green-50 border border-green-200 rounded text-xs mt-4">
-                    <p class="font-bold text-green-800">ÚLTIMO LANÇAMENTO EM LOTE:</p>
-                    <p>Cidades: ${nomesMunis}</p>
-                    <p>Mês: ${mes} | Data: ${new Date().toLocaleString()}</p>
-                </div>
-            `;
-        }
     }
 });
+
 async function filtrarItensLancar(termo) {
     if (!containerItensLancar) return;
-    
     const itens = await window.api.listarItensCatalogo();
     const filtrados = itens.filter(i => i.descricao.toLowerCase().includes(termo.toLowerCase()));
-    
     containerItensLancar.innerHTML = '';
-    
     filtrados.forEach(item => {
         const id = item._id || item.id;
         // Recupera o valor que já estava digitado na memória, se existir
@@ -209,38 +421,15 @@ inputBuscaLancar?.addEventListener('input', (e) => filtrarItensLancar(e.target.v
 
 // Evento de Salvar Lançamento Rápido
 document.getElementById('form-lancar-producao')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const muniId = selectMuniLancar.value;
-    const mes = document.getElementById('lancar-mes').value;
-    
-    if (!muniId || !mes) return alert("⚠️ Selecione Município e Mês!");
-
-    // Transforma o objeto de rascunho em array para o backend
-    const dadosParaSalvar = Object.keys(lancamentoTemporario).map(idExame => ({
-        municipio_id: muniId,
-        mes_referencia: mes,
-        exame_id: idExame,
-        quantidade_realizada: lancamentoTemporario[idExame],
-        is_lancamento_rapido: true // Flag para o backend saber que não deve sobrescrever metas
-    }));
-
-    if (dadosParaSalvar.length === 0) return alert("❌ Insira a quantidade em pelo menos um item!");
-
-    const res = await window.api.salvarProducao(dadosParaSalvar);
-    if (res.success) {
-        alert("✅ Produção lançada com sucesso!");
-        lancamentoTemporario = {}; // Limpa memória após sucesso
-        e.target.reset();
-        filtrarItensLancar('');
-    }
+    // Já tratado acima (apenas para compatibilidade se existe submit duplo, mantenha só um submit!)
 });
+
 
 // --- ABA: GESTÃO DE PRODUÇÃO (TABELA) ---
 
 btnCarregar.addEventListener('click', async () => {
     const municipioId = selectMunicipio.value;
     const mes = document.getElementById('mes-ref').value;
-
     if (!municipioId || !mes) return alert("Por favor, selecione o Município e o Mês!");
 
     inputBusca.value = ''; 
@@ -353,6 +542,126 @@ window.deletarItem = async (id) => {
     const res = await window.api.excluirItem(id);
     if (res.success) { alert("Item removido!"); await atualizarListaItens(); }
 };
+
+window.carregarEstatisticas = async function () {
+
+    const mes = document.getElementById("mes-estatisticas").value;
+
+    console.log("Mês selecionado:", mes);
+
+    const dados = await window.api.buscarEstatisticas(mes);
+
+    console.log("Dados recebidos:", dados);
+
+};
+
+document.getElementById("btn-carregar-estat")
+.addEventListener("click", async () => {
+
+    const mes = document.getElementById("estat-mes").value;
+
+    if (!mes) {
+        alert("Selecione um mês!");
+        return;
+    }
+
+    const dados = await window.api.buscarEstatisticas(mes);
+
+    if (!dados || dados.length === 0) {
+        alert("Nenhum dado encontrado para esse mês.");
+        return;
+    }
+
+    // =========================
+    // KPIs
+    // =========================
+
+    const totalProduzido = dados.reduce((acc, item) => acc + item.total, 0);
+    const totalQuantidade = dados.reduce((acc, item) => acc + item.quantidade, 0);
+    const municipiosUnicos = new Set(dados.map(d => d.municipio)).size;
+    const ticketMedio = totalQuantidade > 0 ? totalProduzido / totalQuantidade : 0;
+
+    document.getElementById("kpi-total").innerText = totalProduzido.toLocaleString("pt-BR", {style:"currency", currency:"BRL"});
+    document.getElementById("kpi-qtd").innerText = totalQuantidade;
+    document.getElementById("kpi-municipios").innerText = municipiosUnicos;
+    document.getElementById("kpi-ticket").innerText = ticketMedio.toLocaleString("pt-BR", {style:"currency", currency:"BRL"});
+
+    // =========================
+    // TABELA
+    // =========================
+
+    const tbody = document.getElementById("estat-tbody");
+    tbody.innerHTML = "";
+
+    dados.forEach(item => {
+        tbody.innerHTML += `
+            <tr class="border-b">
+                <td class="p-2">${item.municipio}</td>
+                <td class="p-2">${item.procedimento}</td>
+                <td class="p-2 text-center">${item.quantidade}</td>
+                <td class="p-2 text-right">
+                    ${item.total.toLocaleString("pt-BR", {style:"currency", currency:"BRL"})}
+                </td>
+            </tr>
+        `;
+    });
+
+    // =========================
+    // GRÁFICO POR MUNICÍPIO
+    // =========================
+
+    const totalPorMunicipio = {};
+
+    dados.forEach(item => {
+        if (!totalPorMunicipio[item.municipio]) {
+            totalPorMunicipio[item.municipio] = 0;
+        }
+        totalPorMunicipio[item.municipio] += item.total;
+    });
+
+    const ctx1 = document.getElementById("graficoMunicipios");
+
+    if (window.graficoMun) window.graficoMun.destroy();
+
+    window.graficoMun = new Chart(ctx1, {
+        type: "bar",
+        data: {
+            labels: Object.keys(totalPorMunicipio),
+            datasets: [{
+                label: "Total por Município",
+                data: Object.values(totalPorMunicipio)
+            }]
+        }
+    });
+
+    // =========================
+    // GRÁFICO POR PROCEDIMENTO
+    // =========================
+
+    const totalPorProcedimento = {};
+
+    dados.forEach(item => {
+        if (!totalPorProcedimento[item.procedimento]) {
+            totalPorProcedimento[item.procedimento] = 0;
+        }
+        totalPorProcedimento[item.procedimento] += item.total;
+    });
+
+    const ctx2 = document.getElementById("graficoProcedimentos");
+
+    if (window.graficoProc) window.graficoProc.destroy();
+
+    window.graficoProc = new Chart(ctx2, {
+        type: "pie",
+        data: {
+            labels: Object.keys(totalPorProcedimento),
+            datasets: [{
+                data: Object.values(totalPorProcedimento)
+            }]
+        }
+    });
+
+});
 
 document.getElementById('form-cadastro-item')?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -497,14 +806,16 @@ window.showTab = function(tabId) {
         'producao': 'tab-producao',
         'lancar': 'tab-lancar',
         'cadastro-itens': 'tab-cadastro-itens',
-        'producao-consolidada': 'tab-producao-consolidada'
+        'producao-consolidada': 'tab-producao-consolidada',
+        'estatisticas': 'tab-estatisticas'
     };
     
     const botoes = {
         'producao': 'btn-tab-producao',
         'lancar': 'btn-tab-lancar',
         'cadastro-itens': 'btn-tab-cadastro',
-        'producao-consolidada': 'btn-tab-consolidada'
+        'producao-consolidada': 'btn-tab-consolidada',
+        'estatisticas': 'btn-tab-estatisticas'
     };
 
     Object.keys(abas).forEach(key => {

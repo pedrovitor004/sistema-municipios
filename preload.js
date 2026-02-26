@@ -18,5 +18,6 @@ contextBridge.exposeInMainWorld('api', {
 
     // Relatórios
     exportarExcel: (dados) => ipcRenderer.invoke('exportar-excel', dados),
-    buscarConsolidado: (mes) => ipcRenderer.invoke('buscar-consolidado', mes)
+    buscarConsolidado: (mes) => ipcRenderer.invoke('buscar-consolidado', mes),
+    buscarEstatisticas: (mes) => ipcRenderer.invoke('buscarEstatisticas', mes)
 });

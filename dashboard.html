@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistema de Gestão Municipal - CISCO</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         th { vertical-align: middle; line-height: 1.2; }
         input[type=number]::-webkit-inner-spin-button, 
@@ -32,7 +33,9 @@
     </style>
 </head>
 <body class="bg-gray-100 flex h-screen overflow-hidden">
+ 
     
+    <!-- Produção Geral -->
     <div class="w-64 bg-[#0033CC] text-white flex flex-col p-6 shadow-xl shrink-0">
         <img src="assets/cisco.png" alt="Logo CISCO" class="w-32 mx-auto mb-4">
         
@@ -44,19 +47,21 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M6 16.5v2.25a2.25 2.25 0 002.25 2.25h13.5A2.25 2.25 0 0024 18.75V7.5a2.25 2.25 0 00-2.25-2.25h-5.85a2.25 2.25 0 00-2.25 2.25v3.375c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625a1.125 1.125 0 011.125-1.125h2.25v-3.75a2.25 2.25 0 00-2.25-2.25H6a2.25 2.25 0 00-2.25 2.25z" />
                 </svg>
                 Produção Geral
-            </button>
+            </button> <!-- ///// -->
+            <!-- Lançar Produção -->
             <button onclick="showTab('lancar')" id="btn-tab-lancar" class="w-full text-left py-2 px-4 rounded hover:bg-blue-800 transition flex items-center gap-3 text-sm">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
                 </svg>
                 Lançar Produção
-            </button>
+            </button> <!-- ///// -->
+            <!-- Produção Consolidada -->
             <button onclick="showTab('producao-consolidada')" id="btn-tab-consolidada" class="w-full text-left py-2 px-4 rounded hover:bg-blue-800 transition flex items-center gap-3 text-sm">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                 </svg>
                 Produção Consolidada
-            </button>
+            </button><!-- ////// -->
             
             <button onclick="showTab('cadastro-itens')" id="btn-tab-cadastro" class="w-full text-left py-2 px-4 rounded hover:bg-blue-800 transition flex items-center gap-3 text-sm">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
@@ -64,6 +69,9 @@
                 </svg>
                 Cadastrar Itens
             </button>
+            <button onclick="showTab('estatisticas')" id="btn-tab-estatisticas" class="w-full text-left py-2 px-4 rounded hover:bg-blue-800 transition flex items-center gap-3 text-sm">
+                📊 Estatísticas
+            </button>            
         </nav>
         
         <div class="flex items-center gap-2 text-xs text-blue-200 mt-auto pt-4 border-t border-blue-500">
@@ -286,40 +294,96 @@
         
         <div id="tab-lancar" class="hidden">
             <h2 class="text-2xl font-bold mb-6 text-[#0033CC]">Lançar Nova Produção</h2>
-            
             <div class="bg-white p-6 rounded-lg shadow-md border border-gray-200 max-w-4xl mx-auto">
-                <form id="form-lancar-producao" class="space-y-6">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div id="container-municipios-lote">
-                            <label class="block font-bold text-xs text-[#0033CC] mb-1">MUNICÍPIOS (Lançamento em Lote)</label>
-                            <select id="lancar-municipio" class="hidden"></select> <div id="lista-municipios-lote" class="grid grid-cols-2 gap-2 border p-3 rounded bg-gray-50 max-h-40 overflow-y-auto border-gray-300">
-                                </div>
-                        </div>
-                        <div>
-                            <label class="block font-bold text-xs text-[#0033CC] mb-1">MÊS DE REFERÊNCIA</label>
-                            <input type="month" id="lancar-mes" class="w-full border p-2 rounded text-sm border-gray-300 outline-none focus:ring-2 focus:ring-[#0033CC]">
-                        </div>
-                    </div>
 
-                    <div class="border-t pt-4">
-                        <label class="block font-bold text-xs text-[#0033CC] mb-1">BUSCAR PROCEDIMENTO</label>
-                        <input type="text" placeholder="Digite o nome do exame..." class="w-full border p-2 rounded text-sm mb-4 border-gray-300">
-                        
-                        <div class="max-h-60 overflow-y-auto border rounded divide-y divide-gray-100">
-                            <div class="p-3 hover:bg-blue-50 flex justify-between items-center">
-                                <span class="text-sm">Consulta Médica Especializada</span>
-                                <input type="number" placeholder="Qtd" class="w-20 border p-1 rounded text-center text-sm">
-                            </div>
-                        </div>
+                <!-- FLUXO LOTE ORIENTADO POR MUNICÍPIO E ITEM -->
+                <div class="mb-4 flex flex-wrap gap-4 items-end">
+                    <div>
+                        <label class="block text-xs font-bold text-[#0033CC] mb-1">Município</label>
+                        <select id="lancar-municipio-unico" class="border p-2 rounded text-sm w-48"></select>
                     </div>
-
-                    <button type="submit" class="w-full bg-green-600 text-white py-3 rounded font-bold hover:bg-green-700 transition shadow-lg">
-                        Confirmar Lançamento
+                    <div>
+                        <label class="block text-xs font-bold text-[#0033CC] mb-1">Procedimento</label>
+                        <select id="lancar-procedimento" class="border p-2 rounded text-sm w-64"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-[#0033CC] mb-1">Quantidade</label>
+                        <input type="number" id="lancar-qtd" class="border p-2 rounded text-sm w-24" min="1">
+                    </div>
+                    <div style="margin-top:10px;">
+                        <label>Mês de Referência:</label>
+                        <input type="month" id="mes-referencia" />
+                    </div>
+                    <button type="button" id="btn-add-lote" class="bg-blue-700 text-white px-4 py-2 rounded font-bold hover:bg-blue-900">
+                        Adicionar ao Lote
                     </button>
-                </form>
+                </div>
+
+                <!-- Mostra lançamentos que serão feitos em lote -->
+                <div class="bg-white rounded shadow-md border mb-4 overflow-auto">
+                    <table class="w-full text-xs">
+                        <thead>
+                            <tr>
+                                <th class="p-2 bg-blue-50 border-r">Município</th>
+                                <th class="p-2 bg-blue-50 border-r">Procedimento</th>
+                                <th class="p-2 bg-blue-50 border-r">Quantidade</th>
+                                <th class="p-2 bg-blue-50"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabela-lote-lancamentos"></tbody>
+                    </table>
+                </div>
+                <button id="btn-lancar-tudo" class="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 mb-4 block">
+                    Lançar Tudo de Uma Vez
+                </button>
+
+                <!-- Protocolo, histórico, etc -->
+                <div id="protocolo-container" class="mt-8"></div>
+                <button onclick="exibirTodosProtocolos()" class="underline text-blue-700 text-xs mb-6 mt-1">Ver protocolos anteriores</button>
             </div>
         </div>
 
+        <div id="tab-estatisticas" class="hidden">
+            <h2 class="text-2xl font-bold mb-6 text-[#0033CC]">Dashboard de Estatísticas</h2>
+
+            <!-- Filtro -->
+            <div class="mb-6 flex gap-4">
+                <input type="month" id="estat-mes" class="border p-2 rounded text-sm">
+                <button id="btn-carregar-estat" class="bg-[#0033CC] text-white px-4 py-2 rounded font-bold">
+                    Carregar Dados
+                </button>
+            </div>
+
+            <!-- KPIs -->
+            <div class="grid grid-cols-4 gap-4 mb-6">
+                <div class="bg-white p-4 rounded shadow text-center">
+                    <p class="text-xs text-gray-500">Total Produzido</p>
+                    <p class="text-xl font-bold text-[#0033CC]" id="kpi-total">R$ 0,00</p>
+                </div>
+                <div class="bg-white p-4 rounded shadow text-center">
+                    <p class="text-xs text-gray-500">Qtd Procedimentos</p>
+                    <p class="text-xl font-bold text-[#0033CC]" id="kpi-qtd">0</p>
+                </div>
+                <div class="bg-white p-4 rounded shadow text-center">
+                    <p class="text-xs text-gray-500">Município Destaque</p>
+                    <p class="text-xl font-bold text-[#0033CC]" id="kpi-municipio">-</p>
+                </div>
+                <div class="bg-white p-4 rounded shadow text-center">
+                    <p class="text-xs text-gray-500">Média por Município</p>
+                    <p class="text-xl font-bold text-[#0033CC]" id="kpi-media">R$ 0,00</p>
+                </div>
+            </div>
+
+            <!-- Gráficos -->
+            <div class="grid grid-cols-2 gap-6">
+                <div class="bg-white p-4 rounded shadow">
+                    <canvas id="graficoMunicipios"></canvas>
+                </div>
+                <div class="bg-white p-4 rounded shadow">
+                    <canvas id="graficoProcedimentos"></canvas>
+                </div>
+            </div>
+        </div>        
     </main>
 
     <script src="renderer.js"></script>
@@ -330,6 +394,7 @@
             document.getElementById('tab-lancar').classList.add('hidden');
             document.getElementById('tab-producao-consolidada').classList.add('hidden');
             document.getElementById('tab-cadastro-itens').classList.add('hidden');
+            document.getElementById('tab-estatisticas').classList.add('hidden');
             
             // Remove destaque de todos os botões da sidebar
             document.querySelectorAll('nav button').forEach(btn => {
@@ -343,6 +408,7 @@
             let activeBtnId = 'btn-tab-' + tabId;
             if (tabId === 'producao-consolidada') activeBtnId = 'btn-tab-consolidada';
             if (tabId === 'cadastro-itens') activeBtnId = 'btn-tab-cadastro';
+            if (tabId === 'estatisticas') activeBtnId = 'btn-tab-estatisticas';
             
             const activeBtn = document.getElementById(activeBtnId);
             if (activeBtn) {
